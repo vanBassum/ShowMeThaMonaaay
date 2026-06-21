@@ -1,0 +1,7 @@
+requests
+Pillow
+imagehash
+numpy
+opencv-python
+keyboard
+winsdk

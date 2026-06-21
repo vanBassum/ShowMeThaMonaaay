@@ -1,0 +1,13 @@
+# cached item icons + hashes (regenerate with: python fetch_items.py && python build_hashes.py)
+data/
+
+# debug output, overlays, captures
+out/
+screenshots/
+
+# python
+__pycache__/
+*.pyc
+
+# editor / tooling
+.claude/
