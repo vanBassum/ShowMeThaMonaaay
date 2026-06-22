@@ -144,13 +144,18 @@ def main():
     bgs = make_backgrounds()
     print(f"{len(bgs)} background tiles")
 
+    dev = "cuda" if torch.cuda.is_available() else "cpu"
+    bs = 256 if dev == "cuda" else 128
+    print(f"device: {dev}" + (f" ({torch.cuda.get_device_name(0)})"
+                              if dev == "cuda" else ""))
     train_dl = DataLoader(IconDS(icons, repeat=10, bgs=bgs, train=True),
-                          batch_size=128, shuffle=True, num_workers=6,
-                          persistent_workers=True, drop_last=True)
+                          batch_size=bs, shuffle=True, num_workers=6,
+                          persistent_workers=True, drop_last=True,
+                          pin_memory=(dev == "cuda"))
     val_dl = DataLoader(IconDS(icons, repeat=1, bgs=bgs, train=False),
-                        batch_size=256, shuffle=False, num_workers=4)
+                        batch_size=512, shuffle=False, num_workers=4,
+                        pin_memory=(dev == "cuda"))
 
-    dev = "cpu"
     model = IconNet(n).to(dev)
     # lower LR on the pretrained backbone, higher on the fresh head
     opt = torch.optim.AdamW([
@@ -165,6 +170,7 @@ def main():
         model.train()
         tot, seen = 0.0, 0
         for x, y in train_dl:
+            x, y = x.to(dev, non_blocking=True), y.to(dev, non_blocking=True)
             opt.zero_grad()
             out = model(x)
             loss = lossf(out, y)
@@ -178,6 +184,7 @@ def main():
         correct = 0
         with torch.no_grad():
             for x, y in val_dl:
+                x, y = x.to(dev, non_blocking=True), y.to(dev, non_blocking=True)
                 correct += (model(x).argmax(1) == y).sum().item()
         print(f"epoch {ep+1}/{epochs}  loss {tot/seen:.3f}  val_clean {correct/n:.3f}",
               flush=True)

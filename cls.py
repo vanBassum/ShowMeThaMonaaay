@@ -18,16 +18,17 @@ import torch
 from cls_model import IconNet, to_tensor
 
 DATA = os.path.join(os.path.dirname(__file__), "data")
+DEV = "cuda" if torch.cuda.is_available() else "cpu"
 _M = None
 
 
 def model():
     global _M
     if _M is None:
-        ck = torch.load(os.path.join(DATA, "cls.pt"), map_location="cpu")
+        ck = torch.load(os.path.join(DATA, "cls.pt"), map_location=DEV)
         net = IconNet(ck["nclasses"], pretrained=False)
         net.load_state_dict(ck["state"])
-        net.eval()
+        net.to(DEV).eval()
         items = json.load(open(os.path.join(DATA, "items.json"), encoding="utf-8"))
         byid = {it["id"]: it for it in items}
         meta = [byid.get(i, {"id": i, "name": i, "shortName": i,
@@ -42,8 +43,8 @@ def classify(crop, w=None, h=None, topn=1):
     """Return [(item_dict, prob)] best-first. If w,h given, restrict to items
     of that footprint (falls back to all if none match)."""
     m = model()
-    x = to_tensor(crop).unsqueeze(0)
-    logits = m["net"](x)[0]
+    x = to_tensor(crop).unsqueeze(0).to(DEV)
+    logits = m["net"](x)[0].cpu()
     if w and h:
         mask = torch.from_numpy(((m["fw"] == w) & (m["fh"] == h)).astype(np.float32))
         if mask.any():

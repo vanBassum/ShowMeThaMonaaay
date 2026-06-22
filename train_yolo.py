@@ -9,6 +9,7 @@ Weights land in runs/detect/items/weights/best.pt
 """
 import os
 import sys
+import torch
 from ultralytics import YOLO
 
 ROOT = os.path.dirname(__file__)
@@ -16,13 +17,14 @@ ROOT = os.path.dirname(__file__)
 
 def main():
     epochs = int(sys.argv[1]) if len(sys.argv) > 1 else 40
+    gpu = torch.cuda.is_available()
     model = YOLO("yolov8n.pt")          # transfer from COCO-pretrained backbone
     model.train(
         data=os.path.join(ROOT, "data", "yolo", "data.yaml"),
         epochs=epochs,
         imgsz=640,
-        batch=16,
-        device="cpu",
+        batch=32 if gpu else 16,
+        device=0 if gpu else "cpu",
         patience=12,
         project=os.path.join(ROOT, "runs", "detect"),
         name="items",
