@@ -123,21 +123,28 @@ class Matcher:
 
     def match(self, text, threshold=0.82):
         """Return (item, score) for the best match, or (None, 0) if weak.
-        Exact short/long name hits score 1.0; otherwise fuzzy on short names."""
+        Exact short/long name hits score 1.0; otherwise fuzzy on short names.
+        Tries a few OCR-confusion variants of the query (e.g. roman 'II' often
+        reads as '11') so a digit misread doesn't sink an otherwise exact hit."""
         q = _norm(text)
         if not q or len(q) < 2:
             return None, 0.0
-        if q in self.by_short:
-            return self.by_short[q], 1.0
-        if q in self.by_name:
-            return self.by_name[q], 1.0
+        variants = {q}
+        if "11" in q:                 # 'II' misread as '11'
+            variants.add(q.replace("11", "ii"))
+        for v in variants:            # exact wins on any variant
+            if v in self.by_short:
+                return self.by_short[v], 1.0
+            if v in self.by_name:
+                return self.by_name[v], 1.0
         best, score = None, 0.0
-        for key, it in self.by_short.items():
-            if not key:
-                continue
-            r = SequenceMatcher(None, q, key).ratio()
-            if r > score:
-                best, score = it, r
+        for v in variants:
+            for key, it in self.by_short.items():
+                if not key:
+                    continue
+                r = SequenceMatcher(None, v, key).ratio()
+                if r > score:
+                    best, score = it, r
         return (best, score) if score >= threshold else (None, score)
 
 

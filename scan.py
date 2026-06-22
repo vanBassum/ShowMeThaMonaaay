@@ -36,16 +36,19 @@ UI_WORDS = {
 
 
 def is_noise(text):
-    """True for UI chrome: known labels, or mostly digits/slashes (durability,
-    weight, ammo counts like '20/20', '205/212', '42.1')."""
+    """True for UI chrome we must not match as items: known labels, label
+    fragments (e.g. 'SPEC' from 'SPECIAL SLOTS'), and pure numbers/durability
+    ('20/20', '205/212', '* 01'). Item names with digits (X-17, MP-153) are
+    KEPT — they contain letters and aren't label fragments."""
     t = text.strip()
-    if t.upper() in UI_WORDS:
+    up = t.upper()
+    if up in UI_WORDS:
         return True
-    alnum = re.sub(r"[^a-z0-9]", "", t.lower())
-    if not alnum:
+    if len(up) >= 3 and any(w.startswith(up) and w != up for w in UI_WORDS):
         return True
-    digits = sum(c.isdigit() for c in alnum)
-    return digits / len(alnum) > 0.5
+    if not any(c.isalpha() for c in t):   # durability / counts / weights
+        return True
+    return False
 
 
 def load_font(size):
