@@ -1,10 +1,10 @@
 """
 Train the icon-classifier CNN, robust to the in-game look AND grid-free.
 
-Each item icon is kept at its NATIVE aspect ratio (a 5x1 weapon stays 5:1); the
-classifier letterboxes it to a square in cls_model.to_tensor, so item SHAPE is a
-learned signal -- this replaces the old cell-footprint logit mask. No grid, no
-resolution assumptions.
+Each item icon is augmented at its native aspect, then squashed to a square in
+cls_model.to_tensor (full detail for elongated items). Item SHAPE is supplied
+separately at inference as a grid-free aspect prior (cls.classify), so we keep
+detail without a cell grid or resolution assumptions.
 
 Augmentation simulates the on-screen look: translucent-panel background bleed,
 colour tint/jitter, blur (upscale softness), gridlines, name bar + count, and
@@ -181,9 +181,10 @@ def main():
                 correct += (model(x).argmax(1) == y).sum().item()
         print(f"epoch {ep+1}/{epochs}  loss {tot/seen:.3f}  val_clean {correct/n:.3f}",
               flush=True)
-
-    torch.save({"state": model.state_dict(), "ids": ids, "nclasses": n},
-               os.path.join(DATA, "cls.pt"))
+        # save every epoch so the run can be stopped anytime and still leave a
+        # usable model (cls.pt is always the latest completed epoch)
+        torch.save({"state": model.state_dict(), "ids": ids, "nclasses": n},
+                   os.path.join(DATA, "cls.pt"))
     print(f"-> {os.path.join(DATA, 'cls.pt')}")
 
 

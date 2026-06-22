@@ -17,21 +17,13 @@ MEAN = np.array([0.485, 0.456, 0.406], np.float32)   # ImageNet
 STD = np.array([0.229, 0.224, 0.225], np.float32)
 
 
-PAD = (124, 116, 104)            # ~ImageNet mean*255, so padding ~0 after norm
-
-
 def to_tensor(pil):
-    """PIL RGB -> normalized CHW float tensor, LETTERBOXED to INPUT x INPUT.
-    Aspect ratio is preserved (padded, not squashed) so item shape -- a 5x1
-    weapon vs a 1x1 -- is a signal the net can use. This replaces the old
-    cell-footprint logit mask: grid-free, resolution-free."""
-    pil = pil.convert("RGB")
-    w, h = pil.size
-    s = INPUT / max(w, h)
-    nw, nh = max(1, round(w * s)), max(1, round(h * s))
-    canvas = Image.new("RGB", (INPUT, INPUT), PAD)
-    canvas.paste(pil.resize((nw, nh)), ((INPUT - nw) // 2, (INPUT - nh) // 2))
-    a = np.asarray(canvas, np.float32) / 255.0
+    """PIL RGB -> normalized CHW float tensor at INPUT x INPUT (aspect SQUASHED).
+    Squashing uses the full input for detail -- elongated items (a 5x1 weapon)
+    keep their pixels instead of becoming a thin letterboxed strip. Aspect is fed
+    back separately as a grid-free logit prior (see cls.classify), so we get
+    detail AND shape without a cell grid."""
+    a = np.asarray(pil.convert("RGB").resize((INPUT, INPUT)), np.float32) / 255.0
     a = (a - MEAN) / STD
     return torch.from_numpy(a.transpose(2, 0, 1).copy())
 

@@ -114,7 +114,9 @@ def scan_pil(pil, conf=0.25):
     idx = item_index()
     out = []
     for x0, y0, x1, y1, score in dets:
-        it, prob = cls.classify(pil.crop((int(x0), int(y0), int(x1), int(y1))), topn=1)[0]
+        crop = pil.crop((int(x0), int(y0), int(x1), int(y1)))
+        ba = (x1 - x0) / max(1.0, (y1 - y0))
+        it, prob = cls.classify(crop, topn=1, box_aspect=ba)[0]
         meta = idx.get(it["id"], it)
         w, h = meta.get("width", 1), meta.get("height", 1)
         slots = max(1, w * h)

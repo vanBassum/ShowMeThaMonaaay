@@ -12,12 +12,15 @@ Usage (standalone):  python cls.py <crop.png>
 import os
 import sys
 import json
+import math
+import numpy as np
 import torch
 
 from cls_model import IconNet, to_tensor
 
 DATA = os.path.join(os.path.dirname(__file__), "data")
 DEV = "cuda" if torch.cuda.is_available() else "cpu"
+ASPECT_TOL = 0.45   # |log(box_aspect) - log(item_aspect)| within this == same shape
 _M = None
 
 
@@ -32,16 +35,26 @@ def model():
         byid = {it["id"]: it for it in items}
         meta = [byid.get(i, {"id": i, "name": i, "shortName": i,
                              "width": 1, "height": 1}) for i in ck["ids"]]
-        _M = {"net": net, "meta": meta}
+        aspect = np.array([math.log(max(1, it.get("width", 1))
+                                    / max(1, it.get("height", 1))) for it in meta])
+        _M = {"net": net, "meta": meta, "aspect": aspect}
     return _M
 
 
 @torch.no_grad()
-def classify(crop, topn=1):
-    """Return [(item_dict, prob)] best-first over all classes."""
+def classify(crop, topn=1, box_aspect=None):
+    """Return [(item_dict, prob)] best-first. If box_aspect (box width/height)
+    is given, restrict to items of matching aspect -- a grid-free, scale-free
+    shape prior (replaces the old cell-footprint mask). Falls back to all items
+    if nothing matches."""
     m = model()
     x = to_tensor(crop).unsqueeze(0).to(DEV)
-    prob = torch.softmax(m["net"](x)[0].cpu(), 0)
+    logit = m["net"](x)[0].cpu().numpy()
+    if box_aspect and box_aspect > 0:
+        keep = np.abs(m["aspect"] - math.log(box_aspect)) < ASPECT_TOL
+        if keep.any():
+            logit = np.where(keep, logit, -1e9)
+    prob = torch.softmax(torch.from_numpy(logit), 0)
     p, idx = prob.topk(min(topn, len(prob)))
     return [(m["meta"][int(i)], float(pp)) for pp, i in zip(p, idx)]
 
