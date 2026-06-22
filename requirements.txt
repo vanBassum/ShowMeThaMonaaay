@@ -1,2 +1,4 @@
 Pillow
 winsdk
+numpy
+ImageHash

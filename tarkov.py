@@ -3,6 +3,7 @@ tarkov.dev item database: fetch once, cache to data/items.json, and provide
 name-based matching. This is the authoritative source for item identity, size,
 grid layout (for containers) and price.
 """
+import concurrent.futures
 import json
 import os
 import re
@@ -12,6 +13,8 @@ from difflib import SequenceMatcher
 API = "https://api.tarkov.dev/graphql"
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 CACHE = os.path.join(DATA_DIR, "items.json")
+ICONS = os.path.join(DATA_DIR, "icons")
+UA = {"User-Agent": "money2"}
 
 QUERY = """
 {
@@ -24,6 +27,7 @@ QUERY = """
     types
     basePrice
     avg24hPrice
+    gridImageLink
     sellFor { priceRUB vendor { name } }
     properties {
       __typename
@@ -57,6 +61,42 @@ def load(refresh=False):
         return items
     with open(CACHE, encoding="utf-8") as f:
         return json.load(f)
+
+
+def icon_path(item):
+    return os.path.join(ICONS, item["id"] + ".webp")
+
+
+def _download_one(item):
+    url = item.get("gridImageLink")
+    if not url:
+        return False
+    path = icon_path(item)
+    if os.path.exists(path) and os.path.getsize(path) > 0:
+        return True
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=UA),
+                                    timeout=60) as r:
+            blob = r.read()
+        with open(path, "wb") as f:
+            f.write(blob)
+        return True
+    except Exception:
+        return False
+
+
+def download_icons(items, workers=16):
+    """Download every item's grid icon to data/icons/<id>.webp (cached)."""
+    os.makedirs(ICONS, exist_ok=True)
+    todo = [it for it in items if it.get("gridImageLink")]
+    ok = 0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+        for i, success in enumerate(ex.map(_download_one, todo), 1):
+            ok += success
+            if i % 500 == 0:
+                print(f"  {i}/{len(todo)} ({ok} ok)")
+    print(f"icons: {ok}/{len(todo)} present in {ICONS}")
+    return ok
 
 
 def best_price(item):

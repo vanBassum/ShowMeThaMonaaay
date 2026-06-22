@@ -23,8 +23,27 @@ screenshot -> OCR lines -> drop UI text -> match to item DB -> value + annotate
 ## Modules
 
 - `ocr.py` — Windows OCR wrapper; `read_lines(img)` returns text + boxes.
-- `tarkov.py` — fetch/cache the tarkov.dev item DB; `Matcher` for name matching.
-- `scan.py` — the pipeline: OCR a screenshot, match, value, annotate.
+- `tarkov.py` — fetch/cache the tarkov.dev item DB + grid icons; `Matcher` for
+  name matching; `best_price`.
+- `scan.py` — text pipeline: OCR a screenshot, match, value, annotate.
+- `iconlib.py` — icon normalization + perceptual hashing (overlay-masked).
+- `build_hashes.py` — download icons + build `data/hashes.json`.
+- `identify.py` — match an item-icon crop against the hash DB (+ `--selftest`).
+
+### Icon matching
+
+A second, image-based identifier for items whose text is unreadable. Each item's
+grid icon is normalized to 64px cells, the name strip and count zone are masked
+(the game overlays them; DB icons don't), and pHash/dHash/aHash + an 8×8 colour
+signature are stored. A query crop is scored against all candidates, filtered by
+cell footprint. Self-test matches DB icons against the DB at ~100% (residual
+misses are items that genuinely share an identical icon).
+
+```bash
+python build_hashes.py          # one-time: fetch icons + build hash DB
+python identify.py --selftest 25
+python identify.py crop.png --w 2 --h 2
+```
 
 ## Usage
 
@@ -40,11 +59,12 @@ DB caches to `data/items.json` on first run (both dirs are gitignored).
 
 ## Status / next
 
-Working v1 identifies and prices the labeled items. Known gaps:
+Working v1 identifies and prices labeled items (text) and has a validated
+icon-matching engine. Known gaps:
 
+- **Localization** — icon matching needs item crops. Tie it into `scan.py` by
+  cropping item regions (from container layout) and identifying unlabeled ones.
 - **Deduplication** — items shown twice (e.g. in the quick-use bar) are counted
   twice.
-- **Unlabeled items** — items without visible text need icon matching
-  (perceptual hash against tarkov.dev grid icons).
 - **Container layout** — for per-cell accounting, look up the equipped
   container's `grids[]` from the API (already fetched) and anchor to its label.
