@@ -99,6 +99,14 @@ python detect_items.py "test screenshot 1.png"
 Everything auto-uses CUDA if available, else CPU. GPU-trained weights run on CPU
 too (device-portable).
 
+**VRAM note (important):** detector batch×imgsz must fit GPU VRAM. On a 6 GB
+card, `yolov8s` @ imgsz 960 batch 16 needs ~8.8 GB → it silently spills to
+shared system memory and runs ~10× slower (~20 s/iter). Keep it under VRAM:
+- 6 GB: `yolov8s` @ 768 batch 4–6, or `yolov8n` @ 960 batch 8.
+- ≥12 GB (the new machine): `yolov8m/l` @ 1280, batch 16+ — set these in
+  `train_yolo.py`. Watch the `GPU_mem` column; if it exceeds your card, lower
+  batch or imgsz.
+
 ---
 
 ## Next steps (prioritized)
