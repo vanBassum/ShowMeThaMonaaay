@@ -18,12 +18,12 @@ ROOT = os.path.dirname(__file__)
 def main():
     epochs = int(sys.argv[1]) if len(sys.argv) > 1 else 40
     gpu = torch.cuda.is_available()
-    model = YOLO("yolov8n.pt")          # transfer from COCO-pretrained backbone
+    model = YOLO("yolov8s.pt")          # 's' > 'n': more capacity for recall/precision
     model.train(
         data=os.path.join(ROOT, "data", "yolo", "data.yaml"),
         epochs=epochs,
-        imgsz=640,
-        batch=32 if gpu else 16,
+        imgsz=960,                      # higher res -> small dense-stash items detectable
+        batch=16 if gpu else 4,
         device=0 if gpu else "cpu",
         patience=12,
         project=os.path.join(ROOT, "runs", "detect"),

@@ -30,8 +30,10 @@ TILE = 640                      # training tile size
 # no rescaling at inference). 84px is the 2560x1440 reference; we span well
 # above and below so 1080p / 1440p / ultrawide all fall inside the range.
 CELL_RANGE = (44, 124)
+PROJ = os.path.dirname(__file__)
 
 _FONT = None
+_REAL_BG = None
 
 
 def font():
@@ -42,6 +44,25 @@ def font():
         except Exception:
             _FONT = ImageFont.load_default()
     return _FONT
+
+
+def real_bg_pool():
+    """Heavily-blurred crops of real screenshots, used as background texture so
+    synthetic tiles look like the real game world behind the panels. Blurred
+    hard enough that real items dissolve into texture (won't be learned as
+    detectable objects). Empty if no screenshots present."""
+    global _REAL_BG
+    if _REAL_BG is None:
+        _REAL_BG = []
+        import glob
+        for p in glob.glob(os.path.join(PROJ, "*.png")) + \
+                 glob.glob(os.path.join(PROJ, "*.jpg")):
+            try:
+                _REAL_BG.append(Image.open(p).convert("RGB")
+                                .filter(ImageFilter.GaussianBlur(24)))
+            except Exception:
+                pass
+    return _REAL_BG
 
 
 def load_items():
@@ -55,8 +76,15 @@ def load_items():
 
 
 def background(rng):
-    """A dark, faintly textured canvas with occasional blurred bright blobs,
-    mimicking the blurred game world behind translucent inventory panels."""
+    """A dark textured canvas mimicking the blurred game world. Half the time
+    seeded from a heavily-blurred real screenshot crop (better domain match)."""
+    pool = real_bg_pool()
+    if pool and rng.random() < 0.5:
+        src = pool[int(rng.integers(0, len(pool)))]
+        W, H = src.size
+        s = int(rng.integers(TILE, max(TILE + 1, min(W, H))))
+        x, y = int(rng.integers(0, W - s + 1)), int(rng.integers(0, H - s + 1))
+        return src.crop((x, y, x + s, y + s)).resize((TILE, TILE))
     base = rng.integers(14, 38)
     arr = np.full((TILE, TILE, 3), base, np.uint8)
     arr = arr + rng.integers(-6, 7, (TILE, TILE, 3))
@@ -70,6 +98,28 @@ def background(rng):
         d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=col)
         img = Image.blend(img, blob.filter(ImageFilter.GaussianBlur(60)), 0.35)
     return img
+
+
+def draw_chrome(img, rng):
+    """Paste fake UI chrome (header bars, button strips, text) that is NOT an
+    item and gets NO box -- teaches the detector to ignore panels/tabs/quick-use
+    bars instead of boxing them."""
+    d = ImageDraw.Draw(img, "RGBA")
+    for _ in range(int(rng.integers(0, 4))):
+        kind = rng.integers(0, 3)
+        if kind == 0:                                   # header/text bar
+            x, y = rng.integers(0, TILE - 200), rng.integers(0, TILE - 20)
+            d.rectangle([x, y, x + rng.integers(120, 240), y + rng.integers(14, 26)],
+                        fill=(15, 16, 18, 220))
+            d.text((x + 6, y + 3), "ABCDEF GHIJ", font=font(), fill=(150, 150, 150, 255))
+        elif kind == 1:                                 # button / icon strip
+            x, y = rng.integers(0, TILE - 220), rng.integers(0, TILE - 40)
+            for k in range(int(rng.integers(4, 9))):
+                d.rectangle([x + k * 34, y, x + k * 34 + 30, y + 30],
+                            outline=(80, 80, 80, 200), width=1)
+        else:                                           # solid dark gutter
+            x = rng.integers(0, TILE - 30)
+            d.rectangle([x, 0, x + rng.integers(8, 26), TILE], fill=(8, 8, 9, 200))
 
 
 def draw_panel(img, x0, y0, cols, rows, cell):
@@ -88,27 +138,34 @@ def draw_panel(img, x0, y0, cols, rows, cell):
 
 
 def paste_item(img, icon_path, w_cells, h_cells, x, y, cell, rng, label=""):
-    """Paste an item icon scaled to its cell footprint at (x,y). Adds the game's
-    name bar + count overlay sometimes. Returns the pixel bbox (x0,y0,x1,y1)."""
+    """Paste an item icon scaled to its footprint at (x,y), CLIPPED to the tile
+    (so items at edges become partial/half items). Adds name bar + count
+    overlay. Returns the visible bbox clipped to the tile, or None if <40%
+    visible."""
     pw, ph = w_cells * cell, h_cells * cell
     ic = Image.open(icon_path).convert("RGBA").resize((pw, ph))
-    img.alpha_composite(ic, (x, y))
-    d = ImageDraw.Draw(img)
+    d = ImageDraw.Draw(ic)
     if rng.random() < 0.7 and label:      # name bar (top), as the game prints
-        bar = Image.new("RGBA", (pw, 14), (10, 10, 10, 150))
-        img.alpha_composite(bar, (x, y))
-        d.text((x + 2, y + 1), label[:int(pw / 6)], font=font(), fill=(210, 210, 200, 255))
+        bar = Image.new("RGBA", (pw, max(10, int(ph * 0.16))), (10, 10, 10, 150))
+        ic.alpha_composite(bar, (0, 0))
+        d.text((2, 1), label[:max(1, int(pw / 6))], font=font(), fill=(210, 210, 200, 255))
     if rng.random() < 0.5:                # count / durability (bottom-right)
-        d.text((x + pw - 16, y + ph - 14), str(rng.integers(1, 60)),
-               font=font(), fill=(220, 210, 120, 255))
-    return (x, y, x + pw, y + ph)
+        d.text((pw - 16, ph - 14), str(rng.integers(1, 60)), font=font(),
+               fill=(220, 210, 120, 255))
+    # clip to tile bounds (supports partial items at edges)
+    vx0, vy0 = max(0, x), max(0, y)
+    vx1, vy1 = min(TILE, x + pw), min(TILE, y + ph)
+    if vx1 - vx0 < 0.4 * pw or vy1 - vy0 < 0.4 * ph:
+        return None
+    img.alpha_composite(ic.crop((vx0 - x, vy0 - y, vx1 - x, vy1 - y)), (vx0, vy0))
+    return (vx0, vy0, vx1, vy1)
 
 
 def gen_image(items, rng):
     img = background(rng).convert("RGBA")
     boxes = []
     cell = int(rng.integers(*CELL_RANGE))
-    # 1-3 grid panels
+    # 1-3 grid panels, densely filled
     for _ in range(rng.integers(1, 4)):
         cols = int(rng.integers(2, max(3, TILE // cell)))
         rows = int(rng.integers(2, max(3, TILE // cell)))
@@ -118,8 +175,7 @@ def gen_image(items, rng):
             continue
         draw_panel(img, x0, y0, cols, rows, cell)
         occ = np.zeros((rows, cols), bool)
-        # fill a random fraction of the panel with items
-        attempts = int(cols * rows * rng.uniform(0.4, 0.95))
+        attempts = int(cols * rows * rng.uniform(0.6, 1.1))   # denser packing
         for _ in range(attempts):
             p, iw, ih, sn = items[rng.integers(0, len(items))]
             if iw > cols or ih > rows:
@@ -130,17 +186,31 @@ def gen_image(items, rng):
                 continue
             occ[r:r + ih, c:c + iw] = True
             bb = paste_item(img, p, iw, ih, x0 + c * cell, y0 + r * cell, cell, rng, sn)
-            boxes.append(bb)
-    # a couple of free-floating "equipment slot" items (no grid)
-    for _ in range(rng.integers(0, 3)):
+            if bb:
+                boxes.append(bb)
+            # adjacent IDENTICAL item (teaches the detector to split touching
+            # items instead of merging them into one box)
+            if rng.random() < 0.35 and c + 2 * iw <= cols and not occ[r:r + ih, c + iw:c + 2 * iw].any():
+                occ[r:r + ih, c + iw:c + 2 * iw] = True
+                bb2 = paste_item(img, p, iw, ih, x0 + (c + iw) * cell,
+                                 y0 + r * cell, cell, rng, sn)
+                if bb2:
+                    boxes.append(bb2)
+    # free-floating "equipment slot" items, some deliberately clipped at edges
+    for _ in range(rng.integers(0, 4)):
         p, iw, ih, sn = items[rng.integers(0, len(items))]
         pw, ph = iw * cell, ih * cell
         if pw >= TILE or ph >= TILE:
             continue
-        x = int(rng.integers(0, TILE - pw))
-        y = int(rng.integers(0, TILE - ph))
+        if rng.random() < 0.3:                # partial: hang off an edge
+            x = int(rng.choice([-pw // 3, TILE - pw + pw // 3, rng.integers(0, TILE - pw)]))
+            y = int(rng.choice([-ph // 3, TILE - ph + ph // 3, rng.integers(0, TILE - ph)]))
+        else:
+            x, y = int(rng.integers(0, TILE - pw)), int(rng.integers(0, TILE - ph))
         bb = paste_item(img, p, iw, ih, x, y, cell, rng, sn)
-        boxes.append(bb)
+        if bb:
+            boxes.append(bb)
+    draw_chrome(img, rng)                      # unboxed UI negatives
     return img.convert("RGB"), boxes
 
 
