@@ -106,8 +106,23 @@ def best_price(item):
                                        or item.get("basePrice") or 0)
 
 
+# Strict normalize: lowercase, alnum only, and the one safe fix — the stylized
+# '0' that OCR returns as the replacement char.
 def _norm(s):
-    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+    s = (s or "").lower().replace("�", "0")
+    return re.sub(r"[^a-z0-9]", "", s)
+
+
+# Confusion canon (fallback only): collapse OCR-confusable groups to one rep so
+# garbled reads still match (e.g. 'EKP-B-IB'->EKP-8-18, 'RGD-S'->RGD-5). Lossy —
+# it also merges genuinely-different names (MBSS<->M855), so it's used ONLY for
+# text that fails strict matching first.
+_CONF = str.maketrans({"o": "0", "q": "0", "i": "1", "l": "1", "s": "5",
+                       "b": "8", "g": "6", "z": "2"})
+
+
+def _canon(s):
+    return _norm(s).translate(_CONF)
 
 
 class Matcher:
@@ -115,36 +130,49 @@ class Matcher:
 
     def __init__(self, items):
         self.items = items
-        self.by_short = {}
-        self.by_name = {}
+        self.by_short, self.by_name = {}, {}        # strict
+        self.by_short_c, self.by_name_c = {}, {}     # confusion canon (fallback)
         for it in items:
             self.by_short.setdefault(_norm(it.get("shortName")), it)
             self.by_name.setdefault(_norm(it.get("name")), it)
+            self.by_short_c.setdefault(_canon(it.get("shortName")), it)
+            self.by_name_c.setdefault(_canon(it.get("name")), it)
+
+    @staticmethod
+    def _fuzzy(q, index):
+        best, score = None, 0.0
+        for key, it in index.items():
+            if not key:
+                continue
+            r = SequenceMatcher(None, q, key).ratio()
+            if r > score:
+                best, score = it, r
+        return best, score
 
     def match(self, text, threshold=0.82):
-        """Return (item, score) for the best match, or (None, 0) if weak.
-        Exact short/long name hits score 1.0; otherwise fuzzy on short names.
-        Tries a few OCR-confusion variants of the query (e.g. roman 'II' often
-        reads as '11') so a digit misread doesn't sink an otherwise exact hit."""
+        """Return (item, score), or (None, score) if weak. Two tiers: strict
+        first (clean reads win, no collisions), then a confusion-canon fallback
+        for genuinely-garbled OCR (EKP-B-IB, RGD-S, tt-1�S)."""
         q = _norm(text)
         if not q or len(q) < 2:
             return None, 0.0
-        variants = {q}
-        if "11" in q:                 # 'II' misread as '11'
-            variants.add(q.replace("11", "ii"))
-        for v in variants:            # exact wins on any variant
-            if v in self.by_short:
-                return self.by_short[v], 1.0
-            if v in self.by_name:
-                return self.by_name[v], 1.0
-        best, score = None, 0.0
-        for v in variants:
-            for key, it in self.by_short.items():
-                if not key:
-                    continue
-                r = SequenceMatcher(None, v, key).ratio()
-                if r > score:
-                    best, score = it, r
+        # tier 1: strict
+        if q in self.by_short:
+            return self.by_short[q], 1.0
+        if q in self.by_name:
+            return self.by_name[q], 1.0
+        best, score = self._fuzzy(q, self.by_short)
+        if score >= threshold:
+            return best, score
+        # tier 2: confusion canon (only reached when strict didn't match)
+        qc = _canon(text)
+        if qc in self.by_short_c:
+            return self.by_short_c[qc], 0.99
+        if qc in self.by_name_c:
+            return self.by_name_c[qc], 0.99
+        cbest, cscore = self._fuzzy(qc, self.by_short_c)
+        if cscore >= threshold:
+            return cbest, cscore
         return (best, score) if score >= threshold else (None, score)
 
 
