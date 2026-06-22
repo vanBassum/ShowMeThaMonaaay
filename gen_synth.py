@@ -26,7 +26,10 @@ DATA = os.path.join(os.path.dirname(__file__), "data")
 ICONS = os.path.join(DATA, "icons")
 ROOT = os.path.join(DATA, "yolo")
 TILE = 640                      # training tile size
-CELL_RANGE = (80, 90)           # real cell pitch @ 2560x1440 is ~84
+# wide cell-pitch range -> scale-invariant detector (works at any resolution,
+# no rescaling at inference). 84px is the 2560x1440 reference; we span well
+# above and below so 1080p / 1440p / ultrawide all fall inside the range.
+CELL_RANGE = (44, 124)
 
 _FONT = None
 

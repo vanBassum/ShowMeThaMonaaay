@@ -17,7 +17,7 @@ from tkinter import font as tkfont
 import keyboard
 from PIL import Image, ImageTk, ImageGrab
 
-import analyze
+import detect_items
 
 BG, CARD, FG, MUTE = "#16181d", "#21242c", "#e8e8ea", "#8a8f99"
 KEEP, DROP = "#7ee081", "#e08a86"   # green = keep, red = drop
@@ -97,9 +97,12 @@ class App:
             #   out/last_items.json  - the identified item data
             os.makedirs("out", exist_ok=True)
             img.save("out/last_scan.png")
-            items, overlay = analyze.analyze_pil(img, **analyze.GRID)
-            Image.fromarray(overlay).save("out/last_overlay.png")
-            json.dump(items, open("out/last_items.json", "w"))
+            items = detect_items.scan_pil(img)
+            overlay = detect_items.draw_overlay(img, items)
+            import cv2
+            cv2.imwrite("out/last_overlay.png", overlay)
+            json.dump([{k: v for k, v in x.items() if k != "box"} for x in items],
+                      open("out/last_items.json", "w"))
             results_q.put(items)
         except Exception as e:
             results_q.put(e)
@@ -153,7 +156,7 @@ class App:
         # dedupe identical items -> one row with a ×count and summed total
         agg = {}
         for x in items:
-            if x["weapon"] or x["perslot"] <= 0:
+            if x["weapon"] or x["perslot"] <= 0 or not x.get("sure", True):
                 continue
             a = agg.get(x["id"])
             if a:

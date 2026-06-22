@@ -1,18 +1,17 @@
 """
 Item-icon classifier inference: name a crop with the trained CNN.
 
-  classify(crop, w, h) -> (item_dict, prob)
+  classify(crop, topn=1) -> [(item_dict, prob)]
 
-Footprint (w,h) masks the logits to same-shape items, mirroring the hash
-matcher's dimension filter -- a big precision win, since most confusions are
-between items of different cell shapes.
+Grid-free: the crop is letterboxed (cls_model.to_tensor) so the net sees the
+item's true aspect/shape; no cell-footprint mask is needed. Weights are
+device-portable (GPU-trained models run CPU-only).
 
-Usage (standalone sanity):  python cls.py <crop.png> [--w N --h M]
+Usage (standalone):  python cls.py <crop.png>
 """
 import os
 import sys
 import json
-import numpy as np
 import torch
 
 from cls_model import IconNet, to_tensor
@@ -33,23 +32,16 @@ def model():
         byid = {it["id"]: it for it in items}
         meta = [byid.get(i, {"id": i, "name": i, "shortName": i,
                              "width": 1, "height": 1}) for i in ck["ids"]]
-        foot = np.array(ck["foot"])           # (N,2) = (w,h)
-        _M = {"net": net, "meta": meta, "fw": foot[:, 0], "fh": foot[:, 1]}
+        _M = {"net": net, "meta": meta}
     return _M
 
 
 @torch.no_grad()
-def classify(crop, w=None, h=None, topn=1):
-    """Return [(item_dict, prob)] best-first. If w,h given, restrict to items
-    of that footprint (falls back to all if none match)."""
+def classify(crop, topn=1):
+    """Return [(item_dict, prob)] best-first over all classes."""
     m = model()
     x = to_tensor(crop).unsqueeze(0).to(DEV)
-    logits = m["net"](x)[0].cpu()
-    if w and h:
-        mask = torch.from_numpy(((m["fw"] == w) & (m["fh"] == h)).astype(np.float32))
-        if mask.any():
-            logits = logits.masked_fill(mask == 0, float("-inf"))
-    prob = torch.softmax(logits, 0)
+    prob = torch.softmax(m["net"](x)[0].cpu(), 0)
     p, idx = prob.topk(min(topn, len(prob)))
     return [(m["meta"][int(i)], float(pp)) for pp, i in zip(p, idx)]
 
@@ -59,9 +51,7 @@ def main():
     if len(sys.argv) < 2:
         print(__doc__)
         return
-    w = int(sys.argv[sys.argv.index("--w") + 1]) if "--w" in sys.argv else None
-    h = int(sys.argv[sys.argv.index("--h") + 1]) if "--h" in sys.argv else None
-    for it, p in classify(Image.open(sys.argv[1]), w, h, topn=5):
+    for it, p in classify(Image.open(sys.argv[1]), topn=5):
         print(f"  p={p:.3f}  {it['shortName']:<18} {it['name']}")
 
 
