@@ -101,14 +101,17 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-i", "--input", default="test screenshot 1.png")
     ap.add_argument("-o", "--output", default="out/inventory.png")
-    ap.add_argument("--icon-max", type=float, default=260.0,
-                    help="Max icon-match distance to accept a blob as an item.")
+    ap.add_argument("--icon-max", type=float, default=110.0,
+                    help="Max icon-match distance to accept a blob as an item. "
+                         "Strict by default: only very confident icon matches "
+                         "(catches icon-only items like grenades that OCR can't "
+                         "read). Raise it to recover more, at the cost of false "
+                         "positives (the grid icons don't match the gear-screen "
+                         "renderings well past ~115).")
     ap.add_argument("--text-min", type=float, default=0.82,
                     help="Min OCR text match score.")
-    ap.add_argument("--icons", action="store_true",
-                    help="Also run the (experimental, unreliable) icon pass. "
-                         "tarkov.dev grid icons don't match the gear-screen "
-                         "renderings well, so this mostly adds false positives.")
+    ap.add_argument("--no-icons", action="store_true",
+                    help="Disable the icon pass (text only).")
     args = ap.parse_args()
 
     matcher = tarkov.Matcher(tarkov.load())
@@ -130,8 +133,8 @@ def main():
                           "short": item["shortName"], "price": tarkov.best_price(item),
                           "box": (x, y, max(w, PITCH), max(h, PITCH)), "score": score})
 
-    # ---- ICON pass (opt-in; experimental, see --icons help) ----
-    if args.icons:
+    # ---- ICON pass (strict by default; catches icon-only items OCR misses) ----
+    if not args.no_icons:
         for (px0, px1) in panel_bounds(rgb[y0w:y1w]):
             crop = rgb[y0w:y1w, px0:px1]
             for (bx, by, bw, bh) in blobs(crop):
