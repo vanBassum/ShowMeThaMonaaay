@@ -28,8 +28,10 @@ from cls_model import IconNet, to_tensor
 ROOT = os.path.dirname(__file__)
 DATA = os.path.join(ROOT, "data")
 ICONS = os.path.join(DATA, "icons")
+LABELED = os.path.join(DATA, "labeled")
 RNG = np.random.default_rng(0)
 CELL = 64        # render each cell ~64px (native icon scale); aspect preserved
+REAL_OVERSAMPLE = 120   # weight each real labeled crop this many times per epoch
 
 
 def load_icons():
@@ -49,6 +51,26 @@ def load_icons():
         icons.append(np.asarray(im, np.uint8))
         ids.append(it["id"])
     return icons, ids
+
+
+def load_real(ids):
+    """Load real labeled crops from data/labeled/<id>/*.png as (array, class_idx).
+    These are real on-screen crops (auto-labeled by autolabel.py or hand-picked)
+    and close the synthetic->real gap. Returns [] if none."""
+    if not os.path.isdir(LABELED):
+        return []
+    idx = {i: k for k, i in enumerate(ids)}
+    out = []
+    for iid in os.listdir(LABELED):
+        if iid not in idx:
+            continue
+        for f in os.listdir(os.path.join(LABELED, iid)):
+            try:
+                im = Image.open(os.path.join(LABELED, iid, f)).convert("RGB")
+            except Exception:
+                continue
+            out.append((np.asarray(im, np.uint8), idx[iid]))
+    return out
 
 
 def make_bg_pool(k=160):
@@ -83,12 +105,17 @@ def bg_like(pool, w, h, rng):
     return src.crop((x, y, x + w, y + h))
 
 
-def augment(icon_arr, pool, rng):
-    """One in-game-like view of an icon array (native aspect preserved)."""
+def augment(icon_arr, pool, rng, real=False):
+    """One in-game-like view of an icon array (native aspect preserved).
+    `real` crops already have a real background, so skip the bleed step and
+    augment lightly."""
     icon = Image.fromarray(icon_arr)
     w, h = icon.size
-    # 1) background bleed
-    img = Image.blend(bg_like(pool, w, h, rng), icon, rng.uniform(0.74, 0.96))
+    if real:
+        img = icon
+    else:
+        # 1) background bleed (synthetic icons only)
+        img = Image.blend(bg_like(pool, w, h, rng), icon, rng.uniform(0.74, 0.96))
     # 2) tint
     if rng.random() < 0.6:
         tint = Image.new("RGB", (w, h), tuple(int(v) for v in rng.integers(30, 220, 3)))
@@ -118,41 +145,56 @@ def augment(icon_arr, pool, rng):
 
 
 class IconDS(Dataset):
-    def __init__(self, icons, repeat, pool, train=True):
-        self.icons, self.repeat, self.pool, self.train = icons, repeat, pool, train
+    """Synthetic canonical icons (one per class, repeated) + real labeled crops
+    (oversampled). The first `n_synth` indices are synthetic; the rest cycle
+    through real crops."""
+    def __init__(self, icons, pool, repeat, reals=None, real_oversample=0, train=True):
+        self.icons, self.pool, self.repeat, self.train = icons, pool, repeat, train
+        self.reals = reals or []
+        self.n_synth = len(icons) * repeat
+        self.n_real = len(self.reals) * real_oversample if train else 0
 
     def __len__(self):
-        return len(self.icons) * self.repeat
+        return self.n_synth + self.n_real
 
     def __getitem__(self, i):
-        idx = i % len(self.icons)
-        if not self.train:
-            return to_tensor(Image.fromarray(self.icons[idx])), idx
         rng = np.random.default_rng(i * 2654435761 % (2**32))
-        return to_tensor(augment(self.icons[idx], self.pool, rng)), idx
+        if i < self.n_synth:
+            idx = i % len(self.icons)
+            if not self.train:
+                return to_tensor(Image.fromarray(self.icons[idx])), idx
+            return to_tensor(augment(self.icons[idx], self.pool, rng)), idx
+        arr, cls_idx = self.reals[(i - self.n_synth) % len(self.reals)]
+        return to_tensor(augment(arr, self.pool, rng, real=True)), cls_idx
 
 
 def main():
     epochs = int(sys.argv[1]) if len(sys.argv) > 1 else 16
+    resume = "--resume" in sys.argv     # fine-tune the existing cls.pt
     icons, ids = load_icons()
     n = len(ids)
-    print(f"{n} classes")
+    reals = load_real(ids)
+    print(f"{n} classes | {len(reals)} real labeled crops"
+          + (" | resuming from cls.pt" if resume else ""))
     pool = make_bg_pool()
-    print(f"{len(pool)} background images")
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     bs = 256 if dev == "cuda" else 128
     print(f"device: {dev}" + (f" ({torch.cuda.get_device_name(0)})"
                               if dev == "cuda" else ""))
-    train_dl = DataLoader(IconDS(icons, repeat=10, pool=pool, train=True),
+    train_dl = DataLoader(IconDS(icons, pool, repeat=10, reals=reals,
+                                 real_oversample=REAL_OVERSAMPLE, train=True),
                           batch_size=bs, shuffle=True, num_workers=6,
                           persistent_workers=True, drop_last=True,
                           pin_memory=(dev == "cuda"))
-    val_dl = DataLoader(IconDS(icons, repeat=1, pool=pool, train=False),
+    val_dl = DataLoader(IconDS(icons, pool, repeat=1, train=False),
                         batch_size=512, shuffle=False, num_workers=4,
                         pin_memory=(dev == "cuda"))
 
     model = IconNet(n).to(dev)
+    if resume and os.path.exists(os.path.join(DATA, "cls.pt")):
+        model.load_state_dict(torch.load(os.path.join(DATA, "cls.pt"),
+                                         map_location=dev)["state"])
     opt = torch.optim.AdamW([
         {"params": model.features.parameters(), "lr": 4e-4},
         {"params": model.head.parameters(), "lr": 2e-3},
