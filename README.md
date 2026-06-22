@@ -29,20 +29,26 @@ screenshot -> OCR lines -> drop UI text -> match to item DB -> value + annotate
 - `iconlib.py` — icon normalization + perceptual hashing (overlay-masked).
 - `build_hashes.py` — download icons + build `data/hashes.json`.
 - `identify.py` — match an item-icon crop against the hash DB (+ `--selftest`).
+- `read_inventory.py` — full reader: OCR text matching over the gear panels,
+  with an opt-in (`--icons`) experimental icon pass.
 
-### Icon matching
+### Icon matching (built, but does NOT transfer to this screenshot)
 
-A second, image-based identifier for items whose text is unreadable. Each item's
-grid icon is normalized to 64px cells, the name strip and count zone are masked
-(the game overlays them; DB icons don't), and pHash/dHash/aHash + an 8×8 colour
-signature are stored. A query crop is scored against all candidates, filtered by
-cell footprint. Self-test matches DB icons against the DB at ~100% (residual
-misses are items that genuinely share an identical icon).
+A second, image-based identifier. Each item's grid icon is normalized to 64px
+cells, the name strip and count zone are masked, and pHash/dHash/aHash + an 8×8
+colour signature are stored; a query crop is scored against all candidates,
+filtered by cell footprint.
+
+The engine is validated DB-to-DB (self-test ~100%), **but it does not work
+against this gear screenshot**: the in-game gear-screen rendering differs too
+much from the flat tarkov.dev grid icons (lighting, the fuzzy backdrop bleeding
+in, scale), so even a correct crop scores no better than wrong ones (d≈300).
+Background-masking the crop didn't close the gap. Kept as `--icons` for
+experimentation; the reliable path here is text.
 
 ```bash
 python build_hashes.py          # one-time: fetch icons + build hash DB
 python identify.py --selftest 25
-python identify.py crop.png --w 2 --h 2
 ```
 
 ## Usage
@@ -59,12 +65,12 @@ DB caches to `data/items.json` on first run (both dirs are gitignored).
 
 ## Status / next
 
-Working v1 identifies and prices labeled items (text) and has a validated
-icon-matching engine. Known gaps:
+`read_inventory.py` reads and prices the labeled items reliably (text). Notes:
 
-- **Localization** — icon matching needs item crops. Tie it into `scan.py` by
-  cropping item regions (from container layout) and identifying unlabeled ones.
-- **Deduplication** — items shown twice (e.g. in the quick-use bar) are counted
-  twice.
+- **Icon matching doesn't transfer** to the gear screen (see above) — the
+  screenshot rendering is too unlike the flat grid icons. It would likely work
+  on the in-stash inventory view, where cells show the true grid icons.
+- **Unlabeled items** therefore aren't read yet. Options: train/tune matching
+  on actual in-game cell renders, or read the in-stash view instead.
 - **Container layout** — for per-cell accounting, look up the equipped
   container's `grids[]` from the API (already fetched) and anchor to its label.
