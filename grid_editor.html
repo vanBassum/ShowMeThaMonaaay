@@ -129,8 +129,11 @@ cv.addEventListener('mousedown',e=>{
   if(e.button!==0||!W) return;
   const p=evToImg(e);
   if(sel>=0){ const h=hitHandle(grids[sel],p); if(h>=0){ drag={mode:'resize',corner:h}; return; } }
-  // select topmost grid under cursor
-  for(let i=grids.length-1;i>=0;i--){ if(inside(grids[i],p)){ sel=i; drag={mode:'move',ox:p.x-grids[i].x,oy:p.y-grids[i].y}; draw(); renderList(); renderProps(); return; } }
+  // select topmost grid under cursor; Ctrl+drag duplicates and drags the copy
+  for(let i=grids.length-1;i>=0;i--){ if(inside(grids[i],p)){
+    if(e.ctrlKey||e.metaKey){ const s=grids[i]; grids.push({name:(s.name||'grid')+'_copy',x:s.x,y:s.y,w:s.w,h:s.h,cols:s.cols,rows:s.rows}); sel=grids.length-1; }
+    else sel=i;
+    const g=grids[sel]; drag={mode:'move',ox:p.x-g.x,oy:p.y-g.y}; draw(); renderList(); renderProps(); return; } }
   sel=-1; draw(); renderList(); renderProps();
 });
 window.addEventListener('mousemove',e=>{
@@ -146,7 +149,7 @@ window.addEventListener('mousemove',e=>{
 });
 window.addEventListener('mouseup',()=>{ if(pan){pan=null;cv.style.cursor=space?'grab':'default';} drag=null; });
 cv.addEventListener('wheel',e=>{ e.preventDefault(); const r=cv.getBoundingClientRect(); const ix=(e.clientX-r.left)/scale, iy=(e.clientY-r.top)/scale;
-  scale=Math.min(4,Math.max(0.1,scale*(e.deltaY<0?1.1:1/1.1))); resize(); draw();
+  scale=Math.min(40,Math.max(0.1,scale*(e.deltaY<0?1.1:1/1.1))); resize(); draw();
   const sr=stage.getBoundingClientRect(); stage.scrollLeft=ix*scale-(e.clientX-sr.left); stage.scrollTop=iy*scale-(e.clientY-sr.top); },{passive:false});
 document.addEventListener('keydown',e=>{ if(e.target.tagName==='INPUT') return;
   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='d'){ dupSelected(); e.preventDefault(); return; }
