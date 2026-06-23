@@ -31,6 +31,7 @@ RARITY = {  # cell background tints (approx EFT)
     "common": (62, 62, 62), "rare": (40, 53, 78), "epic": (60, 44, 78),
     "legendary": (78, 64, 40),
 }
+HIGHLIGHT_BG = (120, 104, 74)   # warm tan cell when pinned/search-highlighted (calibrated vs manuel/)
 
 
 def font(sz):
@@ -42,21 +43,26 @@ def font(sz):
     return ImageFont.load_default()
 
 
-def cell_bg(w, h, rarity="common"):
-    """Dark cell with a subtle top-left lit gradient + rarity tint."""
-    base = np.array(RARITY.get(rarity, RARITY["common"]), np.float32)
+def cell_bg(w, h, rarity="common", highlight=False):
+    """Cell with a subtle top-left lit gradient. Search/pinned highlight repaints
+    the cell a warm tan and adds a lighter border (per manuel/ references)."""
+    base = np.array(HIGHLIGHT_BG if highlight else RARITY.get(rarity, RARITY["common"]), np.float32)
     yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
     g = 1.0 - 0.35 * ((xx / w + yy / h) / 2.0)        # lighter top-left
     arr = (base[None, None, :] * g[..., None]).clip(0, 255).astype(np.uint8)
     img = Image.fromarray(arr, "RGB").convert("RGBA")
     d = ImageDraw.Draw(img)
-    d.rectangle([0, 0, w - 1, h - 1], outline=(0, 0, 0, 120), width=1)
+    edge = (165, 150, 110, 200) if highlight else (0, 0, 0, 120)
+    d.rectangle([0, 0, w - 1, h - 1], outline=edge, width=1)
     return img
 
 
-def place(icon, w, h, rarity="common", pad=0.06):
-    """Composite the icon over a cell background, padded like the game."""
-    bg = cell_bg(w, h, rarity)
+def place(icon, w, h, rarity="common", pad=0.06, highlight=False, rotate=False):
+    """Composite the icon over a cell background, padded like the game. rotate=
+    True rotates the icon 90 deg (an item turned in the grid)."""
+    if rotate:
+        icon = icon.rotate(90, expand=True)
+    bg = cell_bg(w, h, rarity, highlight)
     iw, ih = int(w * (1 - 2 * pad)), int(h * (1 - 2 * pad))
     ic = icon.convert("RGBA").resize((iw, ih))
     bg.alpha_composite(ic, ((w - iw) // 2, (h - ih) // 2))
@@ -84,20 +90,38 @@ def add_name(img, text):
     return img
 
 
-# ---- GUESSES — calibrate against a real crop ----
 def add_fir(img):
-    """GUESS: Found-in-Raid marker (small mark, top-right)."""
-    d = ImageDraw.Draw(img); s = max(10, img.width // 8)
-    d.ellipse([img.width - s - 3, 3, img.width - 3, 3 + s], fill=(70, 170, 90, 235))
-    d.text((img.width - s + 1, 2), "✓", font=font(s), fill=(255, 255, 255, 255))
+    """Found-in-Raid: a small light-gray check mark in the BOTTOM-RIGHT corner
+    (calibrated vs manuel/ GPhone, MTape, cord)."""
+    d = ImageDraw.Draw(img); s = max(9, img.width // 8); m = max(2, img.width // 40)
+    x, y = img.width - m, img.height - m
+    d.line([(x - s, y - s * 0.45), (x - s * 0.55, y), (x, y - s)],
+           fill=(225, 225, 215, 240), width=max(2, img.width // 55))
     return img
 
 
-def add_highlight(img, color=(255, 210, 60)):
-    """GUESS: search / pinned highlight (glow border + tint)."""
+SEARCH_GLYPHS = ("circle", "square", "triangle", "bars")
+
+
+def add_search_icon(img, kind="circle"):
+    """Search-category badge in the BOTTOM-LEFT, shown during a category search
+    (the glyph differs per category — generic placeholders here). Per manuel/
+    MTape, Toolset, cord."""
+    s = max(12, img.width // 6); m = max(2, img.width // 40)
+    x0, y0, x1, y1 = m, img.height - s - m, m + s, img.height - m
     d = ImageDraw.Draw(img)
-    for i, a in enumerate((90, 150, 220)):
-        d.rectangle([i, i, img.width - 1 - i, img.height - 1 - i], outline=color + (a,), width=1)
+    d.rounded_rectangle([x0, y0, x1, y1], radius=s // 5, fill=(18, 18, 20, 185))
+    cx, cy, r, col = (x0 + x1) // 2, (y0 + y1) // 2, s // 3, (205, 205, 210, 240)
+    if kind == "circle":
+        d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=col, width=2)
+    elif kind == "square":
+        d.rectangle([cx - r, cy - r, cx + r, cy + r], outline=col, width=2)
+    elif kind == "triangle":
+        d.polygon([(cx, cy - r), (cx - r, cy + r), (cx + r, cy + r)], outline=col)
+    else:
+        for k in range(3):
+            yy = cy - r + k * r
+            d.line([(cx - r, yy), (cx + r, yy)], fill=col, width=2)
     return img
 
 
@@ -108,9 +132,13 @@ def contact_sheet(icon, short):
         ("+ durability", add_durability(place(icon, CELL, CELL))),
         ("+ name", add_name(place(icon, CELL, CELL), short)),
         ("rare tint", place(icon, CELL, CELL, "rare")),
-        ("FiR (GUESS)", add_fir(place(icon, CELL, CELL))),
-        ("highlight (GUESS)", add_highlight(place(icon, CELL, CELL))),
-        ("combined", add_highlight(add_count(add_name(place(icon, CELL, CELL, "rare"), short), 42))),
+        ("found-in-raid", add_fir(place(icon, CELL, CELL))),
+        ("rotated 90", place(icon, CELL, CELL, rotate=True)),
+        ("highlight", place(icon, CELL, CELL, highlight=True)),
+        ("hl + search o", add_search_icon(place(icon, CELL, CELL, highlight=True), "circle")),
+        ("hl + search []", add_search_icon(place(icon, CELL, CELL, highlight=True), "square")),
+        ("hl + FiR + search", add_fir(add_search_icon(place(icon, CELL, CELL, highlight=True), "triangle"))),
+        ("combined", add_fir(add_search_icon(add_count(add_name(place(icon, CELL, CELL, highlight=True), short), 42), "bars"))),
     ]
     cols = 4
     rows = (len(variants) + cols - 1) // cols
@@ -148,7 +176,8 @@ def main():
         sheet = combo
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     sheet.save(args.out)
-    print(f"-> {args.out}  ({it.get('shortName')})  [FiR + highlight are GUESSES]")
+    print(f"-> {args.out}  ({it.get('shortName')})  "
+          f"[FiR/highlight/search calibrated vs manuel/; exact category glyphs are placeholders]")
 
 
 if __name__ == "__main__":

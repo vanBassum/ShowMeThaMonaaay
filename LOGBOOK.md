@@ -5,6 +5,28 @@ See `CLAUDE.md` for the format rule.
 
 ---
 
+## 2026-06-23 — Icon-variant overlays calibrated from real crops (`mask-detect-frontend`)
+
+**Why.** Clean icons ≠ what the game draws. Plan: model overlays as a generator
+feature so training covers them; calibrate against real reference crops (user
+provided 6 in `manuel/`, covering all combos of highlight × found-in-raid).
+
+**Calibrated (`variants.py`):**
+- **Found-in-Raid** = small light-gray ✓ in the **bottom-right** corner (my first
+  guess — green circle top-right — was wrong).
+- **Search/pinned highlight** = cell repainted a **warm tan** + lighter border
+  (not a bright yellow glow).
+- **Search-category badge** = small icon **bottom-left**, present during category
+  search; glyph varies per category (generic placeholders for now).
+- Also: stack count (br), durability bar (left), name strip (top), rarity tint,
+  and **rotation 90°** (user noted items can be turned in the grid).
+
+**Status: overlays match references.** Next: fold these as random augmentations
+into `gen_synth` (paste-time), and — for the identifier side — MASK these corner
+regions so they don't corrupt matching. Pairs with the real-grid generator plan.
+
+---
+
 ## 2026-06-23 — Template matching: open-set ID fails, known-icon LOCALIZE works (`mask-detect-frontend`)
 
 Tried template matching two ways using the icons we already own.
