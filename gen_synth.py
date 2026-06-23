@@ -75,9 +75,16 @@ def load_items():
     return out
 
 
-def background(rng):
+def background(rng, black=False):
     """A dark textured canvas mimicking the blurred game world. Half the time
-    seeded from a heavily-blurred real screenshot crop (better domain match)."""
+    seeded from a heavily-blurred real screenshot crop (better domain match).
+
+    black=True returns a near-black canvas to match the masked detector input
+    (items isolated on black by mask_pipeline.py) — no world texture, since the
+    flood removes it at inference."""
+    if black:
+        arr = np.clip(rng.integers(0, 8, (TILE, TILE, 3)), 0, 255).astype(np.uint8)
+        return Image.fromarray(arr)
     pool = real_bg_pool()
     if pool and rng.random() < 0.5:
         src = pool[int(rng.integers(0, len(pool)))]
@@ -172,8 +179,8 @@ def _overlaps(box, placed):
     return False
 
 
-def gen_image(items, rng):
-    img = background(rng).convert("RGBA")
+def gen_image(items, rng, black=False):
+    img = background(rng, black).convert("RGBA")
     boxes = []                 # labelled item boxes (also used for overlap tests)
     panels = []                # panel rects, kept non-overlapping
     cell = int(rng.integers(*CELL_RANGE))
@@ -187,7 +194,10 @@ def gen_image(items, rng):
         if prect[2] > TILE or prect[3] > TILE or _overlaps(prect, panels):
             continue
         panels.append(prect)
-        draw_panel(img, x0, y0, cols, rows, cell)
+        # masked input has no visible panel grid (flood removes it) -> in black
+        # mode keep only the lattice geometry, don't draw the panel/gridlines.
+        if not black:
+            draw_panel(img, x0, y0, cols, rows, cell)
         occ = np.zeros((rows, cols), bool)
         attempts = int(cols * rows * rng.uniform(0.6, 1.1))   # denser packing
         for _ in range(attempts):
@@ -229,17 +239,19 @@ def gen_image(items, rng):
                 if bb:
                     boxes.append(bb)
                 break
-    draw_chrome(img, rng)                      # unboxed UI negatives
+    if not black:
+        draw_chrome(img, rng)                  # unboxed UI negatives (masked away)
     return img.convert("RGB"), boxes
 
 
-def write_split(items, n, split, rng):
+def write_split(items, n, split, rng, black_frac=0.0):
     idir = os.path.join(ROOT, "images", split)
     ldir = os.path.join(ROOT, "labels", split)
     os.makedirs(idir, exist_ok=True)
     os.makedirs(ldir, exist_ok=True)
     for i in range(n):
-        img, boxes = gen_image(items, rng)
+        black = rng.random() < black_frac
+        img, boxes = gen_image(items, rng, black)
         img.save(os.path.join(idir, f"{split}_{i:05d}.jpg"), quality=88)
         with open(os.path.join(ldir, f"{split}_{i:05d}.txt"), "w") as f:
             for (x0, y0, x1, y1) in boxes:
@@ -253,15 +265,18 @@ def write_split(items, n, split, rng):
 
 
 def main():
-    def arg(name, d):
-        return int(sys.argv[sys.argv.index(name) + 1]) if name in sys.argv else d
+    def arg(name, d, cast=int):
+        return cast(sys.argv[sys.argv.index(name) + 1]) if name in sys.argv else d
     n_train, n_val, seed = arg("--n", 600), arg("--val", 100), arg("--seed", 0)
+    # fraction of images rendered on a black background (matches the masked
+    # detector input from mask_pipeline.py). Default 0 = legacy world-bg dataset.
+    black_frac = arg("--black-frac", 0.0, float)
     rng = np.random.default_rng(seed)
     items = load_items()
-    print(f"{len(items)} usable icons")
+    print(f"{len(items)} usable icons | black_frac={black_frac}")
     os.makedirs(ROOT, exist_ok=True)
-    write_split(items, n_train, "train", rng)
-    write_split(items, n_val, "val", rng)
+    write_split(items, n_train, "train", rng, black_frac)
+    write_split(items, n_val, "val", rng, black_frac)
     with open(os.path.join(ROOT, "data.yaml"), "w") as f:
         f.write(f"path: {ROOT}\ntrain: images/train\nval: images/val\n"
                 f"nc: 1\nnames: [item]\n")

@@ -21,6 +21,15 @@ Also capped `train_yolo.py` at `DEV_MAX_EPOCHS=4` while developing.
 **Status: done, not yet retrained.** Next: regenerate dataset + 4-epoch train,
 re-run `--detect` to compare against the current weights.
 
+**Update — black-background option added.** `gen_synth.py --black-frac P` renders
+fraction P of images on near-black with no world texture, no visible panel grid,
+no UI chrome — matching the masked detector input from `mask_pipeline.py`. Verified
+visually (`out/_synth_black_*.png`): items isolated on black, non-overlapping,
+boxes aligned, anti-merge pairs preserved. **Held off on training (GPU in use).**
+When ready, run:
+  `python gen_synth.py --n 3000 --val 300 --black-frac 1.0 && python train_yolo.py`
+(train is capped at 4 epochs) then `python mask_pipeline.py --detect` to compare.
+
 ---
 
 ## 2026-06-23 — Pipe masked image into the existing detector (`mask-detect-frontend`)
