@@ -27,7 +27,8 @@ ROOT = os.path.dirname(__file__)
 DATA = os.path.join(ROOT, "data")
 OUT = os.path.join(ROOT, "out")
 WEIGHTS = os.path.join(ROOT, "runs", "detect", "items", "weights", "best.pt")
-TILE, STRIDE = 640, 512            # overlapping tiles (input resolution, not grid)
+TILE, STRIDE = 640, 512            # overlapping tile crop size (screen area per window)
+IMGSZ = 960                        # net input size; MUST match train_yolo.IMGSZ
 
 PROB_OK = 0.40                     # classifier prob above this == trust the name
 MAX_BOX_FRAC = 0.45                # box bigger than this fraction of the image = panel
@@ -49,7 +50,7 @@ def tiled_detect(model, pil, conf):
     for y in ys:
         for x in xs:
             tile = pil.crop((x, y, min(x + TILE, W), min(y + TILE, H)))
-            res = model.predict(tile, conf=conf, imgsz=TILE, verbose=False)[0]
+            res = model.predict(tile, conf=conf, imgsz=IMGSZ, verbose=False)[0]
             xary = res.boxes.xyxy.cpu().numpy()
             sary = res.boxes.conf.cpu().numpy()
             for (x0, y0, x1, y1), s in zip(xary, sary):

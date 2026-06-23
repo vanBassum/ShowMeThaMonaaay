@@ -109,34 +109,70 @@ shared system memory and runs ~10× slower (~20 s/iter). Keep it under VRAM:
 
 ---
 
-## Next steps (prioritized)
+## Direction v2 — robust plan (updated 2026-06-22)
 
-**1. Finish detection (in progress — do first; it gates classification).**
-- Validate the current retrain (`yolov8s` @960 + richer generator) on both
-  screenshots: are panel/merge/miss cases reduced?
-- With more powerful hardware, scale up: **`yolov8m`/`l`**, **imgsz 1280**,
-  **`gen_synth --n 5000+`**, full epoch count. Add **multi-scale / TTA** at
-  inference. (Generator already has: real-bg, UI negatives, anti-merge pairs,
-  partials.)
+A round of experiments (see "What the experiments settled" below) converged on a
+robust architecture: **text-first identity + grid/detector boxes**, validated
+against a fixed ground-truth set instead of eyeballing.
 
-**2. Fix classifier confidence via the real-data flywheel.**
-- Run `compare.py --save` over many screenshots → consensus labels.
-- `train_cls.py --resume` to fine-tune on real crops; raise `REAL_OVERSAMPLE`
-  with more data. Re-measure named-count + correctness on a held-out shot.
-- Tune the ensemble: tighten OCR (drop 1-char "T" matches), try **AKAZE**
-  (more features than ORB on icons), tune vote weights in `compare.py`.
+### Robust architecture
 
-**3. Bigger real-data source (parked idea).**
-- Single Player Tarkov (SPT): stage known inventories → capture screenshots with
-  ground-truth → auto labeled data for detector AND classifier. Best long-term
-  fix for the synthetic→real gap.
+- **Localize**
+  - Stash (regular grid): calibrate cell *pitch* (reliable, Sobel periodicity)
+    and take the *origin* from the OCR name anchors → exact cells. More robust
+    than YOLO on the grid. (`stashgrid.py`)
+  - Equipment / rig / non-grid: the synthetic-trained YOLO detector for boxes.
+- **Identify — text first**
+  - Primary: OCR the printed name → fuzzy-match `items.json`. No domain gap, and
+    it's the ONLY thing that separates same-icon families (keys). (`ocr.py`
+    `ocr_words`, `stash_ocr.py`)
+  - Fallback (name unreadable / not printed): pretrained-CNN embedding nearest-
+    neighbour vs the icon library, or the trained classifier.
+  - Confidence-gated: report `?` rather than guess.
+- **Value**: matched item → DB price; sum per slot; guns detected but NOT valued.
 
-**4. Build the human-in-the-loop reviewer** for the residual <2-agreement crops
-   (show crop + top-5 candidates, one-click confirm → label). Mostly confirming,
-   since the CNN's top-1 is usually right.
+### Plan (ordered by ROI)
 
-**5. Polish**: resolution-proportional filters already in `detect_items.py`;
-   verify on a 1080p/ultrawide shot. Re-wire `ui.py` value report end-to-end.
+**Phase 0 — Measurement (do FIRST).** Finish the OCR labeller (stash + equipment;
+correct the ~4 misreads), label 3–5 screenshots → `tests/*.truth.json`, plus an
+eval script (detection P/R, identity accuracy, value error). Ends the "did it
+improve?" guesswork — every later change becomes measurable.
+
+**Phase 1 — Robust stash reader (MVP).** grid + OCR identity + DB footprint →
+boxes + names + values for the stash. A working valuer for the common case with
+no fragile icon matching. Handle multi-cell grouping + occupancy.
+
+**Phase 2 — Fill the gaps.** Equipment/rig via the YOLO detector for boxes; OCR
+names where printed; pretrained-embedding classifier for items OCR can't read.
+
+**Phase 3 — Real-data flywheel.** Use OCR-labelled crops to TRAIN the classifier
+(`cls.pt`, never trained yet) and FINE-TUNE the detector on real data; re-measure
+on the Phase-0 eval set.
+
+**Phase 4 — Polish.** Value report + `ui.py` wire-up; verify other resolutions;
+SPT auto-labelling for scale (optional, biggest lift).
+
+### What the experiments settled (2026-06-22)
+
+- **Visual icon-matching is a dead end for identity** — domain gap (tarkov.dev ≠
+  live render) + same-icon families. Failed three ways: per-cell edge-cosine,
+  sliding NCC (present/absent score ranges overlap), EFT↔dev cross-match
+  (Alyonka→grenade). Don't reinvest without a strong embedding.
+- **OCR of the printed name is the reliable identity signal** — 57/58 stash cells
+  first real try; uniquely separates keys. Read the WHOLE region at once (tiny
+  per-cell crops give OCR no context); grayscale+autocontrast+fuzzy beat a
+  white-text mask (mask dropped ~20% of words).
+- **Generator negatives work**: non-overlap + empty-slot/UI negatives cut the real
+  empty-slot FPs; clean data converges fast (epoch-1 mAP 0.98 vs 0.51). Synthetic
+  cell-states (locked/highlight/FiR) not worth pixel-matching — let the detector
+  generalise.
+- **EFT icon cache** is extractable (3431 real renders, alpha, footprint-coded
+  sizes) but UNLABELLED — hash is opaque (0/5044 crack hits). Mapping needs a CNN
+  embedding; parked.
+- **Grid**: pitch (84 @ 1440p) recovers cleanly; origin is best taken from OCR
+  anchors (Sobel-only origin was ~0.8 cell off).
+- Detector dev runs = 3 epochs; long runs only for the final model.
+- Baseline detector snapshot: `models/detector_baseline_overlap_e16.pt`.
 
 ---
 

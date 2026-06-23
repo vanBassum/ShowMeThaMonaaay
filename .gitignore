@@ -13,6 +13,7 @@ runs/
 # python
 __pycache__/
 *.pyc
+.venv/
 
 # editor / tooling
 .claude/
