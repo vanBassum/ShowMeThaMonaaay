@@ -77,9 +77,23 @@ def noise_bg(T, rng):
     return img.convert("RGBA")
 
 
+def matte_icon(icon, rng):
+    """Key out the icon's baked cell background (sampled from its corners) so the
+    noise behind shows through the empty areas instead of the catalog cell/grid."""
+    arr = np.asarray(icon.convert("RGB")).astype(np.int16)
+    cor = np.concatenate([arr[:4, :4].reshape(-1, 3), arr[:4, -4:].reshape(-1, 3),
+                          arr[-4:, :4].reshape(-1, 3), arr[-4:, -4:].reshape(-1, 3)])
+    bg = np.median(cor, axis=0)
+    dist = np.sqrt(((arr - bg) ** 2).sum(axis=2))
+    thr = rng.uniform(24, 40)
+    a = (np.clip((dist - thr) / 16.0, 0, 1) * 255).astype(np.uint8)
+    return Image.fromarray(np.dstack([np.clip(arr, 0, 255).astype(np.uint8), a]), "RGBA")
+
+
 def noise_tile(pool, rng, T, variants):
     """Items scattered (non-overlapping, ~real scale) over pure noise — teaches the
-    detector to find items independent of the inventory background."""
+    detector to find items independent of background. Icons are matted so the noise
+    bleeds through their empty areas (no baked cell/grid)."""
     img = noise_bg(T, rng); cell = rng.uniform(70, 92); placed = []
     for _ in range(rng.randint(4, 16)):
         iid, fw, fh = rng.choice(pool)
@@ -89,9 +103,7 @@ def noise_tile(pool, rng, T, variants):
         x, y = rng.randint(0, T - w), rng.randint(0, T - h)
         if any(x < px+pw and x+w > px and y < py+ph and y+h > py for px, py, pw, ph in placed):
             continue
-        icon = Image.open(os.path.join(gs.ICONS, iid + ".webp")).convert("RGBA").resize((w, h))
-        if variants:
-            icon = gs.stamp_variant(icon, rng)
+        icon = matte_icon(Image.open(os.path.join(gs.ICONS, iid + ".webp")).resize((w, h)), rng)
         img.alpha_composite(icon, (x, y))
         placed.append((x, y, w, h))
     labs = [f"0 {(x+w/2)/T:.6f} {(y+h/2)/T:.6f} {w/T:.6f} {h/T:.6f}" for x, y, w, h in placed]
