@@ -256,6 +256,17 @@ def _font(size):
     return ImageFont.load_default()
 
 
+def distinct_colors(n):
+    """n visually distinct RGB colors, evenly spaced around the hue wheel."""
+    import colorsys
+    out = []
+    for i in range(max(1, n)):
+        h = (i * 0.618033988749895) % 1.0      # golden-ratio hue stepping
+        r, g, b = colorsys.hsv_to_rgb(h, 0.65, 1.0)
+        out.append((int(r * 255), int(g * 255), int(b * 255)))
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-i", "--input", default="test screenshot 1.png")
@@ -289,23 +300,29 @@ def main():
         d1.text((x, y - font.size - 2), lab, fill=(0, 230, 255), font=font)
     s1.save(os.path.join(args.outdir, "1_ocr_containers.png"))
 
-    # ---- 2_subdivision.png ----
+    # ---- 2_subdivision.png ---- (each region its own color)
     qy = quick_use_y(lines, H)
     print(f"quick-use bar at y={qy} (working bottom)")
     regions, pans = subdivide(containers, W, qy, gray)
-    s2 = img.copy()
-    d2 = ImageDraw.Draw(s2)
-    for (px0, px1) in pans:                             # panel dividers (magenta)
-        d2.line([px1 - 1, 0, px1 - 1, H], fill=(255, 0, 255), width=2)
-    d2.line([0, qy, W, qy], fill=(255, 0, 255), width=2)  # quick-use cutoff
-    cols = {"SLOT": (0, 220, 0), "GRID": (255, 150, 0)}
-    for r in regions:
+    colors = distinct_colors(len(regions))
+    s2 = img.convert("RGBA")
+    fill = Image.new("RGBA", s2.size, (0, 0, 0, 0))     # translucent fill layer
+    df = ImageDraw.Draw(fill)
+    for r, c in zip(regions, colors):
         x0, y0, x1, y1 = r["rect"]
-        d2.rectangle([x0, y0, x1, y1], outline=cols[r["type"]], width=3)
-        d2.text((x0 + 4, y0 + 4), r["label"], fill=(0, 255, 255), font=font)
+        df.rectangle([x0, y0, x1, y1], fill=c + (70,))
+    s2 = Image.alpha_composite(s2, fill).convert("RGB")
+    d2 = ImageDraw.Draw(s2)
+    for (px0, px1) in pans:                             # panel dividers (white)
+        d2.line([px1 - 1, 0, px1 - 1, H], fill=(255, 255, 255), width=2)
+    d2.line([0, qy, W, qy], fill=(255, 255, 255), width=2)  # quick-use cutoff
+    for r, c in zip(regions, colors):
+        x0, y0, x1, y1 = r["rect"]
+        d2.rectangle([x0, y0, x1, y1], outline=c, width=3)
+        d2.text((x0 + 4, y0 + 4), r["label"], fill=c, font=font)
     s2.save(os.path.join(args.outdir, "2_subdivision.png"))
     print(f"subdivision: {len(regions)} regions in {len(pans)} panels "
-          f"(green=slot, orange=grid, magenta=panel divider)")
+          f"(each region its own color; white = panel / quick-use dividers)")
 
     # ---- 3_bg_mask.png + 3_masked.png ----
     mask = np.zeros((H, W), dtype=np.uint8)
