@@ -93,13 +93,48 @@ def match_ocr(text):
     return (best, bs) if bs >= 0.8 else None
 
 
+MODELS_JSON = os.path.join(ROOT, "models.json")
+ACTIVE_FILE = os.path.join(ROOT, "data", "active_model.txt")
+
+
+def weights_for(m):
+    return os.path.join(ROOT, "runs", "detect", m["run"], "weights", "best.pt")
+
+
+def list_models():
+    mods = json.load(open(MODELS_JSON, encoding="utf-8")) if os.path.exists(MODELS_JSON) else []
+    for m in mods:
+        m["exists"] = os.path.exists(weights_for(m))
+    return mods
+
+
+def active_id():
+    mods = list_models()
+    if os.path.exists(ACTIVE_FILE):
+        a = open(ACTIVE_FILE).read().strip()
+        if a in [m["id"] for m in mods]:
+            return a
+    for m in mods:                       # default: first trained model in the list
+        if m["exists"]:
+            return m["id"]
+    return mods[0]["id"] if mods else None
+
+
+def active_weights():
+    aid = active_id()
+    for m in list_models():
+        if m["id"] == aid and m["exists"]:
+            return weights_for(m)
+    return None                          # falls back to detect_items.WEIGHTS
+
+
 def scan(sid, conf=0.25):
     img = Image.open(ss.raw_path(sid)).convert("RGB")
     W, H = img.size
     items_list()
 
     masked, _ = mp.build_masked(img)
-    model = di.get_model()
+    model = di.get_model(active_weights())
     gray = cv2.cvtColor(np.asarray(masked), cv2.COLOR_RGB2GRAY)
     dets = di.nms(di.tiled_detect(model, masked, conf))
     dets = [d for d in dets if di.keep_box(gray, *d[:4], W, H)]
@@ -179,6 +214,22 @@ def api_grids():
     sid = request.args.get("session", "")
     p = os.path.join(ss.sdir(sid), "grids.json")
     return jsonify(json.load(open(p, encoding="utf-8")) if os.path.exists(p) else [])
+
+
+@app.route("/api/models")
+def api_models():
+    """Available detectors (name/description/trained?) and which is active."""
+    return jsonify({"active": active_id(), "models": list_models()})
+
+
+@app.route("/api/model", methods=["POST"])
+def api_set_model():
+    mid = (request.get_json(force=True) or {}).get("id", "")
+    if mid not in [m["id"] for m in list_models()]:
+        return ("unknown model", 400)
+    os.makedirs(os.path.dirname(ACTIVE_FILE), exist_ok=True)
+    open(ACTIVE_FILE, "w").write(mid)
+    return jsonify({"ok": True, "active": mid})
 
 
 @app.route("/api/sessions")

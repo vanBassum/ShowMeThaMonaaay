@@ -43,6 +43,9 @@
   <button id="rescan">Rescan</button>
   <button id="del" title="delete this session">🗑 Delete</button>
   <span style="width:1px;height:20px;background:var(--line)"></span>
+  <label class="pill" style="display:flex;align-items:center;gap:6px">detector <select id="model" title="detection model"></select></label>
+  <span id="mdesc" class="pill" style="color:var(--muted);max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+  <span style="width:1px;height:20px;background:var(--line)"></span>
   <input id="imp" type="text" placeholder="import file path…" />
   <button id="import">Import</button>
   <span style="width:1px;height:20px;background:var(--line)"></span>
@@ -95,7 +98,17 @@ async function loadAll(force) {
   resize(); draw(); renderList(); updateTotals(); selPanel();
   show(false);
 }
+let MODELS=[];
+async function loadModels(){
+  const r = await api('/api/models'); MODELS=r.models; const m=$('model'); m.innerHTML='';
+  r.models.forEach(o=>{ const e=document.createElement('option'); e.value=o.id;
+    e.textContent=o.name+(o.exists?'':' (not trained)'); e.title=o.description||''; e.disabled=!o.exists; m.appendChild(e); });
+  m.value=r.active; showModelDesc();
+}
+function showModelDesc(){ const cur=MODELS.find(o=>o.id===$('model').value);
+  $('mdesc').textContent = cur?cur.description:''; $('mdesc').title = cur?cur.description:''; $('model').title = cur?cur.description:''; }
 async function init(){
+  await loadModels();
   const want = new URLSearchParams(location.search).get('session');
   const list = await loadSessions(want);
   knownNewest = list.length ? list[0].id : null;
@@ -280,6 +293,11 @@ $('verified').onchange=()=>{
   data.verified = $('verified').checked;
   autosave();                                            // persists into corrected.json
   setTimeout(()=>loadSessions($('sess').value), 700);    // refresh the ✓ marker in the picker
+};
+$('model').onchange=async()=>{
+  try{ await fetch('/api/model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:$('model').value})}); }
+  catch(e){ alert('model switch failed: '+e); return; }
+  showModelDesc(); loadAll(true);    // re-scan current session with the chosen detector
 };
 $('imp').addEventListener('keydown',e=>{ if(e.key==='Enter') $('import').click(); });
 $('del').onclick=async()=>{

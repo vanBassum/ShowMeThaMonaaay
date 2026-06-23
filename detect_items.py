@@ -82,15 +82,16 @@ def keep_box(gray, x0, y0, x1, y1, W, H):
 
 
 WEAPON_TYPES = {"gun", "preset"}
-_MODEL = None
+_MODELS = {}
 _IDX = None
 
 
-def get_model():
-    global _MODEL
-    if _MODEL is None:
-        _MODEL = YOLO(WEIGHTS)
-    return _MODEL
+def get_model(weights=None):
+    """Load (and cache) a YOLO detector by weights path; defaults to WEIGHTS."""
+    path = weights or WEIGHTS
+    if path not in _MODELS:
+        _MODELS[path] = YOLO(path)
+    return _MODELS[path]
 
 
 def item_index():
