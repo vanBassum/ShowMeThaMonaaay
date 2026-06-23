@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Grid editor</title>
+<style>
+  :root { --bg:#15171a; --panel:#1e2126; --line:#2c313a; --accent:#39d98a; --sel:#48c0ff; --txt:#d6dae0; --muted:#8b93a0; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font:13px/1.4 system-ui, sans-serif; height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+  header { background:var(--panel); border-bottom:1px solid var(--line); padding:8px 12px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  input, button, select { background:#11141a; color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:5px 8px; font:inherit; }
+  select{ min-width:220px; } input[type=number]{ width:64px; } button { cursor:pointer; } button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); color:#07120c; border-color:var(--accent); font-weight:600; }
+  .pill { background:#11141a; border:1px solid var(--line); border-radius:999px; padding:3px 10px; color:var(--muted); }
+  #main { flex:1; display:flex; min-height:0; }
+  #stage { flex:1; overflow:auto; background:#0c0e10; }
+  canvas { display:block; }
+  #panel { width:280px; border-left:1px solid var(--line); background:var(--panel); padding:10px; overflow:auto; display:flex; flex-direction:column; gap:8px; }
+  #panel h3 { margin:4px 0; font-size:13px; color:var(--muted); font-weight:600; }
+  .grow { display:flex; flex-direction:column; gap:4px; }
+  .gitem { display:flex; align-items:center; gap:6px; padding:5px 7px; border:1px solid var(--line); border-radius:6px; cursor:pointer; background:#11141a; }
+  .gitem.active { border-color:var(--sel); box-shadow:inset 3px 0 0 var(--sel); }
+  .row { display:flex; gap:8px; align-items:center; }
+  label.f { display:flex; flex-direction:column; gap:2px; font-size:11px; color:var(--muted); }
+  small { color:var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <select id="sess" title="screenshot session"></select>
+  <button id="reload" title="refresh sessions">↻</button>
+  <span style="width:1px;height:20px;background:var(--line)"></span>
+  <button id="add">+ Add grid</button>
+  <button id="save" class="primary">Save</button>
+  <span style="margin-left:auto"></span>
+  <span id="status" class="pill">—</span>
+  <span class="pill">drag body = move · corner = resize · Del = remove · Space+drag = pan</span>
+</header>
+<div id="main">
+  <div id="stage"><canvas id="cv"></canvas></div>
+  <div id="panel"><h3>grids</h3><div id="list" class="grow"></div><div id="props"></div></div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const cv = $('cv'), ctx = cv.getContext('2d'), stage = $('stage'), imgEl = new Image();
+let W=0,H=0, scale=0.6, grids=[], sel=-1, curSession=null;
+let drag=null, pan=null, space=false;
+const HANDLE=8;   // corner handle hit radius (screen px)
+
+function api(p,o){ return fetch(p,o).then(r=>r.json()); }
+function status(t){ $('status').textContent=t; }
+
+async function loadSessions(want){
+  const list = await api('/api/sessions'); const s=$('sess'); s.innerHTML='';
+  list.forEach(o=>{ const e=document.createElement('option'); e.value=o.id; e.textContent=o.id; s.appendChild(e); });
+  if(want && list.some(o=>o.id===want)) s.value=want;
+  return list;
+}
+async function load(){
+  const sid=$('sess').value; if(!sid) return; curSession=sid;
+  imgEl.src='/api/image?session='+encodeURIComponent(sid)+'&t='+Date.now();
+  await new Promise(r=>{imgEl.onload=r;imgEl.onerror=r;});
+  W=imgEl.naturalWidth; H=imgEl.naturalHeight;
+  grids = await api('/api/grids?session='+encodeURIComponent(sid));
+  sel = grids.length?0:-1; resize(); draw(); renderList(); renderProps();
+  status(`${grids.length} grid(s)`);
+}
+function resize(){ cv.width=Math.round(W*scale); cv.height=Math.round(H*scale); }
+function evToImg(e){ const r=cv.getBoundingClientRect(); return {x:(e.clientX-r.left)/scale,y:(e.clientY-r.top)/scale}; }
+
+function draw(){
+  if(!W) return;
+  ctx.setTransform(scale,0,0,scale,0,0); ctx.clearRect(0,0,W,H); ctx.drawImage(imgEl,0,0,W,H);
+  grids.forEach((g,i)=>{
+    const on=i===sel;
+    // cell lines
+    ctx.strokeStyle = on?'rgba(72,192,255,.55)':'rgba(57,217,138,.4)'; ctx.lineWidth=1/scale;
+    for(let c=1;c<g.cols;c++){ const x=g.x+g.w*c/g.cols; ctx.beginPath(); ctx.moveTo(x,g.y); ctx.lineTo(x,g.y+g.h); ctx.stroke(); }
+    for(let r=1;r<g.rows;r++){ const y=g.y+g.h*r/g.rows; ctx.beginPath(); ctx.moveTo(g.x,y); ctx.lineTo(g.x+g.w,y); ctx.stroke(); }
+    // outline
+    ctx.strokeStyle = on?'#48c0ff':'#39d98a'; ctx.lineWidth=(on?2.5:1.5)/scale; ctx.strokeRect(g.x,g.y,g.w,g.h);
+    ctx.fillStyle = on?'#48c0ff':'#39d98a'; ctx.font=`${12/scale}px system-ui`; ctx.textBaseline='bottom';
+    ctx.fillText(`${g.name||'grid'} ${g.cols}×${g.rows}`, g.x+2/scale, g.y-2/scale);
+    if(on){ for(const [hx,hy] of corners(g)){ ctx.fillStyle='#fff'; ctx.fillRect(hx-HANDLE/2/scale,hy-HANDLE/2/scale,HANDLE/scale,HANDLE/scale); } }
+  });
+}
+function corners(g){ return [[g.x,g.y],[g.x+g.w,g.y],[g.x,g.y+g.h],[g.x+g.w,g.y+g.h]]; }
+function hitHandle(g,p){ const t=HANDLE/scale; const cs=corners(g);
+  for(let k=0;k<4;k++){ if(Math.abs(p.x-cs[k][0])<t&&Math.abs(p.y-cs[k][1])<t) return k; } return -1; }
+function inside(g,p){ return p.x>=g.x&&p.x<=g.x+g.w&&p.y>=g.y&&p.y<=g.y+g.h; }
+
+// ---- list + props ----
+function renderList(){
+  const L=$('list'); L.innerHTML='';
+  grids.forEach((g,i)=>{ const d=document.createElement('div'); d.className='gitem'+(i===sel?' active':'');
+    d.innerHTML=`<b>${g.name||'grid'}</b> <small>${g.cols}×${g.rows}</small>`;
+    d.onclick=()=>{ sel=i; draw(); renderList(); renderProps(); }; L.appendChild(d); });
+}
+function renderProps(){
+  const P=$('props'); if(sel<0){ P.innerHTML='<small>select or add a grid</small>'; return; }
+  const g=grids[sel];
+  P.innerHTML='<h3>selected</h3>';
+  const mk=(lab,val,on)=>{ const l=document.createElement('label'); l.className='f'; l.innerHTML=`${lab}`;
+    const inp=document.createElement('input'); inp.value=val; on(inp); l.appendChild(inp); return l; };
+  const name=mk('name',g.name||'',inp=>{inp.type='text'; inp.oninput=()=>{g.name=inp.value; renderList(); draw();};});
+  const cols=mk('cols',g.cols,inp=>{inp.type='number'; inp.min=1; inp.oninput=()=>{g.cols=Math.max(1,+inp.value||1); draw(); cellInfo();};});
+  const rows=mk('rows',g.rows,inp=>{inp.type='number'; inp.min=1; inp.oninput=()=>{g.rows=Math.max(1,+inp.value||1); draw(); cellInfo();};});
+  const r1=document.createElement('div'); r1.className='row'; r1.append(cols,rows);
+  const info=document.createElement('small'); info.id='cellinfo';
+  const del=document.createElement('button'); del.textContent='Delete grid'; del.onclick=()=>{ grids.splice(sel,1); sel=grids.length?0:-1; draw(); renderList(); renderProps(); };
+  P.append(name,r1,info,del); cellInfo();
+}
+function cellInfo(){ const el=$('cellinfo'); if(!el||sel<0) return; const g=grids[sel];
+  el.textContent=`cell ≈ ${(g.w/g.cols).toFixed(1)} × ${(g.h/g.rows).toFixed(1)} px   ·   box ${Math.round(g.w)}×${Math.round(g.h)} @ (${Math.round(g.x)},${Math.round(g.y)})`; }
+
+// ---- mouse ----
+cv.addEventListener('mousedown',e=>{
+  if(e.button===1||(e.button===0&&space)){ pan={x:e.clientX,y:e.clientY,sl:stage.scrollLeft,st:stage.scrollTop}; cv.style.cursor='grabbing'; e.preventDefault(); return; }
+  if(e.button!==0||!W) return;
+  const p=evToImg(e);
+  if(sel>=0){ const h=hitHandle(grids[sel],p); if(h>=0){ drag={mode:'resize',corner:h}; return; } }
+  // select topmost grid under cursor
+  for(let i=grids.length-1;i>=0;i--){ if(inside(grids[i],p)){ sel=i; drag={mode:'move',ox:p.x-grids[i].x,oy:p.y-grids[i].y}; draw(); renderList(); renderProps(); return; } }
+  sel=-1; draw(); renderList(); renderProps();
+});
+window.addEventListener('mousemove',e=>{
+  if(pan){ stage.scrollLeft=pan.sl-(e.clientX-pan.x); stage.scrollTop=pan.st-(e.clientY-pan.y); return; }
+  if(!drag||sel<0) return; const g=grids[sel], p=evToImg(e);
+  if(drag.mode==='move'){ g.x=p.x-drag.ox; g.y=p.y-drag.oy; }
+  else { // resize: keep opposite corner fixed
+    const cs=corners(g), opp=cs[3-drag.corner];
+    const x0=Math.min(p.x,opp[0]), y0=Math.min(p.y,opp[1]);
+    g.x=x0; g.y=y0; g.w=Math.max(8,Math.abs(p.x-opp[0])); g.h=Math.max(8,Math.abs(p.y-opp[1]));
+  }
+  draw(); cellInfo();
+});
+window.addEventListener('mouseup',()=>{ if(pan){pan=null;cv.style.cursor=space?'grab':'default';} drag=null; });
+cv.addEventListener('wheel',e=>{ e.preventDefault(); const r=cv.getBoundingClientRect(); const ix=(e.clientX-r.left)/scale, iy=(e.clientY-r.top)/scale;
+  scale=Math.min(4,Math.max(0.1,scale*(e.deltaY<0?1.1:1/1.1))); resize(); draw();
+  const sr=stage.getBoundingClientRect(); stage.scrollLeft=ix*scale-(e.clientX-sr.left); stage.scrollTop=iy*scale-(e.clientY-sr.top); },{passive:false});
+document.addEventListener('keydown',e=>{ if(e.target.tagName==='INPUT') return;
+  if(e.code==='Space'){ space=true; cv.style.cursor='grab'; e.preventDefault(); }
+  if((e.key==='Delete'||e.key==='Backspace')&&sel>=0){ grids.splice(sel,1); sel=grids.length?0:-1; draw(); renderList(); renderProps(); }
+  if(sel>=0){ const g=grids[sel], step=e.shiftKey?10:1;
+    if(e.key==='ArrowLeft')g.x-=step; if(e.key==='ArrowRight')g.x+=step; if(e.key==='ArrowUp')g.y-=step; if(e.key==='ArrowDown')g.y+=step;
+    if(e.key.startsWith('Arrow')){ draw(); cellInfo(); e.preventDefault(); } }
+});
+document.addEventListener('keyup',e=>{ if(e.code==='Space'){ space=false; cv.style.cursor='default'; } });
+
+// ---- toolbar ----
+$('add').onclick=()=>{ // drop a default 5×2 container near the view's top-left
+  const x=Math.round(stage.scrollLeft/scale)+40, y=Math.round(stage.scrollTop/scale)+40;
+  grids.push({name:'container'+(grids.length+1), x, y, w:84*5, h:84*2, cols:5, rows:2});
+  sel=grids.length-1; draw(); renderList(); renderProps();
+};
+$('save').onclick=async()=>{ status('saving…');
+  try{ const r=await api('/api/grids',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session:curSession,grids})});
+    status(`saved ${r.count} grid(s)`); }catch(e){ status('save failed'); } };
+$('reload').onclick=()=>loadSessions($('sess').value).then(()=>load());
+$('sess').onchange=load;
+
+(async function init(){
+  const want=new URLSearchParams(location.search).get('session');
+  const list=await loadSessions(want);
+  if(!list.length){ $('props').innerHTML='<small>no sessions — capture one with F2 first</small>'; return; }
+  if(!(want&&list.some(o=>o.id===want))) $('sess').value=list[0].id;
+  load();
+})();
+</script>
+</body>
+</html>

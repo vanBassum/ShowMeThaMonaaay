@@ -159,6 +159,28 @@ def index():
     return send_file(os.path.join(ROOT, "index.html"))
 
 
+@app.route("/grid")
+def grid_page():
+    return send_file(os.path.join(ROOT, "grid_editor.html"))
+
+
+@app.route("/api/grids", methods=["GET", "POST"])
+def api_grids():
+    """Per-session grid calibration: a list of {name,x,y,w,h,cols,rows} laid over
+    the screenshot, used later to paste synthetic items into real cells."""
+    if request.method == "POST":
+        d = request.get_json(force=True)
+        sid = d.get("session", "")
+        if not ss.exists(sid):
+            return ("no such session", 404)
+        json.dump(d.get("grids", []),
+                  open(os.path.join(ss.sdir(sid), "grids.json"), "w"), indent=1)
+        return jsonify({"ok": True, "count": len(d.get("grids", []))})
+    sid = request.args.get("session", "")
+    p = os.path.join(ss.sdir(sid), "grids.json")
+    return jsonify(json.load(open(p, encoding="utf-8")) if os.path.exists(p) else [])
+
+
 @app.route("/api/sessions")
 def api_sessions():
     """Newest-first list of capture sessions for the picker. `reviewed` = the
