@@ -5,6 +5,27 @@ See `CLAUDE.md` for the format rule.
 
 ---
 
+## 2026-06-23 — Retrain detector on black-bg/non-overlap data + VRAM fix (`mask-detect-frontend`)
+
+**What.** Regenerated dataset `--black-frac 1.0` (3000/300) and retrained yolov8s,
+4 epochs. Then `mask_pipeline.py --detect` to compare new weights, masked vs original.
+
+**VRAM gotcha (lesson).** First attempt at the legacy `imgsz=960 batch=16` SPILLED on
+the 6GB RTX 3060 laptop (~10x slower, ~1hr/epoch) — exactly the STATUS.md warning.
+Fixed `train_yolo.py` → `imgsz=640 batch=8` (640 also matches inference TILE=640):
+2.6GB used, no spill, 4 epochs in ~22 min.
+
+**Result: retraining helped.** Masked recall **39 → 44 boxes** (old vs new weights) —
+the detector now matches the black-bg input distribution. Masked stays clean (tight
+boxes, none on empty cells); the original (46 boxes) still shows the panel-sized /
+blurry-background false positives masking avoids. Synthetic val mAP50 ~0.995 (same
+distribution, so not the real signal — the screenshot comparison is).
+
+**Remaining:** large items (armor/backpack) still split into sub-boxes (NMS/epochs);
+a few dark items get flooded away pre-detection (mask gap). **Status: working, clear win.**
+
+---
+
 ## 2026-06-23 — Non-overlapping synthetic items + dev epoch cap (`mask-detect-frontend`)
 
 **Why.** Real inventory items never overlap (grid-placed), but `gen_synth.py`

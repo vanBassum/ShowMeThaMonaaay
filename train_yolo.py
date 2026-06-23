@@ -26,11 +26,14 @@ def main():
         epochs = DEV_MAX_EPOCHS
     gpu = torch.cuda.is_available()
     model = YOLO("yolov8s.pt")          # 's' > 'n': more capacity for recall/precision
+    # Sized for a 6 GB card (RTX 3060 Laptop): yolov8s @960 batch16 needs ~8.8 GB
+    # and silently spills to shared memory (~10x slower). imgsz 640 also matches
+    # the inference tile size (detect_items.TILE=640). Bump both on a bigger GPU.
     model.train(
         data=os.path.join(ROOT, "data", "yolo", "data.yaml"),
         epochs=epochs,
-        imgsz=960,                      # higher res -> small dense-stash items detectable
-        batch=16 if gpu else 4,
+        imgsz=640,
+        batch=8 if gpu else 4,
         device=0 if gpu else "cpu",
         patience=12,
         project=os.path.join(ROOT, "runs", "detect"),
