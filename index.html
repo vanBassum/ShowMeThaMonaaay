@@ -41,6 +41,7 @@
   <select id="sess" title="capture session"></select>
   <button id="reload" title="refresh session list">↻</button>
   <button id="rescan">Rescan</button>
+  <button id="del" title="delete this session">🗑 Delete</button>
   <span style="width:1px;height:20px;background:var(--line)"></span>
   <input id="imp" type="text" placeholder="import file path…" />
   <button id="import">Import</button>
@@ -48,6 +49,7 @@
   <button id="vScreen" class="on">Screenshot</button>
   <button id="vList">List</button>
   <span style="margin-left:auto"></span>
+  <label id="vfyWrap" class="pill" style="cursor:pointer;display:flex;align-items:center;gap:6px"><input type="checkbox" id="verified" style="width:auto">looks correct</label>
   <span id="stats" class="pill">—</span>
   <span id="total" class="pill">0 ₽</span>
   <span id="saved" class="pill">—</span>
@@ -74,7 +76,8 @@ async function loadSessions(want){
   const selEl = $('sess'); selEl.innerHTML='';
   list.forEach(s=>{ const o=document.createElement('option'); o.value=s.id;
     const v = s.total!=null ? ` · ${s.total.toLocaleString()} ₽` : '';
-    o.textContent = s.id + v + (s.reviewed?' ✓':''); selEl.appendChild(o); });
+    const mark = s.verified ? ' ✓' : (s.reviewed ? ' •' : '');   // ✓ you confirmed it, • edited
+    o.textContent = s.id + v + mark; selEl.appendChild(o); });
   if(want && list.some(s=>s.id===want)) selEl.value=want;
   return list;
 }
@@ -88,6 +91,7 @@ async function loadAll(force) {
   try { data = await api('/api/scan?session=' + encodeURIComponent(sid) + (force?'&force=1':'')); }
   catch(e){ alert('scan failed: '+e); show(false); return; }
   W = data.image.width; H = data.image.height; sel=-1; loadedSession=sid;
+  $('verified').checked = !!data.verified;
   resize(); draw(); renderList(); updateTotals(); selPanel();
   show(false);
 }
@@ -271,7 +275,26 @@ $('import').onclick=async()=>{
   let r; try{ r=await api('/api/import?path='+encodeURIComponent(path)); }catch(e){ alert('import failed: '+e); return; }
   if(r&&r.id){ await loadSessions(r.id); $('sess').value=r.id; $('imp').value=''; loadAll(false); } else alert('import failed');
 };
+$('verified').onchange=()=>{
+  if(!data){ $('verified').checked=false; return; }
+  data.verified = $('verified').checked;
+  autosave();                                            // persists into corrected.json
+  setTimeout(()=>loadSessions($('sess').value), 700);    // refresh the ✓ marker in the picker
+};
 $('imp').addEventListener('keydown',e=>{ if(e.key==='Enter') $('import').click(); });
+$('del').onclick=async()=>{
+  const sid=$('sess').value; if(!sid) return;
+  if(!confirm(`Delete session ${sid}?\nRemoves its screenshot, scan, corrections, and any banked crops.`)) return;
+  try{ await fetch('/api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session:sid})}); }
+  catch(e){ alert('delete failed: '+e); return; }
+  const list=await loadSessions();
+  knownNewest = list.length ? list[0].id : null;
+  if(list.length){ $('sess').value=list[0].id; loadAll(false); }
+  else { data=null; sel=-1; loadedSession=null; ctx.clearRect(0,0,cv.width,cv.height);
+    $('total').textContent='0 ₽'; $('stats').textContent='—';
+    $('panel').innerHTML='<h3>no sessions</h3><small>Press <b>F2</b> in-game to capture.</small>';
+    $('list').innerHTML=''; }
+};
 $('vScreen').onclick=viewScreen; $('vList').onclick=viewList;
 
 init();

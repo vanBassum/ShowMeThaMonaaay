@@ -16,6 +16,7 @@ Run:  python server.py     then open http://127.0.0.1:5000
 import difflib
 import json
 import os
+import shutil
 import time
 
 import numpy as np
@@ -169,15 +170,17 @@ def api_sessions():
         reviewed = os.path.exists(p)
         if not reviewed:
             p = ss.scan_path(sid)
-        total, items = None, None
+        total, items, verified = None, None, False
         if os.path.exists(p):
             try:
                 d = json.load(open(p, encoding="utf-8"))
                 act = [it for it in d.get("items", []) if it.get("status") != "fluke"]
                 items, total = len(act), sum(it.get("price", 0) for it in act)
+                verified = bool(d.get("verified"))
             except Exception:
                 pass
-        out.append({"id": sid, "reviewed": reviewed, "items": items, "total": total})
+        out.append({"id": sid, "reviewed": reviewed, "verified": verified,
+                    "items": items, "total": total})
     return jsonify(out)
 
 
@@ -282,6 +285,34 @@ def api_save():
     return jsonify({"ok": True, "session": sid,
                     "corrected": sum(1 for it in data.get("items", []) if it.get("corrected")),
                     "banked": banked, "gallery_total": total})
+
+
+@app.route("/api/delete", methods=["POST"])
+def api_delete():
+    """Delete a session: its folder plus any gallery crops banked from it."""
+    sid = (request.get_json(silent=True) or {}).get("session") or request.args.get("session", "")
+    if not sid or not os.path.isdir(ss.sdir(sid)):
+        return ("no such session", 404)
+    # drop gallery entries banked from this session (keyed/tagged by session)
+    if os.path.exists(GLABELS):
+        labels = json.load(open(GLABELS, encoding="utf-8"))
+        for key in [k for k, e in labels.items()
+                    if e.get("session") == sid or k.startswith(sid + "__")]:
+            cf = os.path.join(GCROPS, labels[key].get("crop", ""))
+            if labels[key].get("crop") and os.path.exists(cf):
+                os.remove(cf)
+            labels.pop(key, None)
+        json.dump(labels, open(GLABELS, "w"), indent=1)
+    # a just-captured session may still be mid-scan (files briefly locked) —
+    # retry a couple times rather than silently leaving the folder behind
+    for _ in range(3):
+        shutil.rmtree(ss.sdir(sid), ignore_errors=True)
+        if not os.path.isdir(ss.sdir(sid)):
+            break
+        time.sleep(0.3)
+    ok = not os.path.isdir(ss.sdir(sid))
+    return jsonify({"ok": ok, "deleted": sid if ok else None,
+                    "remaining": len(ss.list_ids())})
 
 
 def _on_f2():
