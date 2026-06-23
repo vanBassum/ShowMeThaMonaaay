@@ -15,8 +15,15 @@ from ultralytics import YOLO
 ROOT = os.path.dirname(__file__)
 
 
+DEV_MAX_EPOCHS = 4              # capped while developing — raise for a real run
+
+
 def main():
-    epochs = int(sys.argv[1]) if len(sys.argv) > 1 else 40
+    epochs = int(sys.argv[1]) if len(sys.argv) > 1 else DEV_MAX_EPOCHS
+    if epochs > DEV_MAX_EPOCHS:
+        print(f"[dev] capping {epochs} -> {DEV_MAX_EPOCHS} epochs "
+              f"(raise DEV_MAX_EPOCHS in train_yolo.py for a full run)")
+        epochs = DEV_MAX_EPOCHS
     gpu = torch.cuda.is_available()
     model = YOLO("yolov8s.pt")          # 's' > 'n': more capacity for recall/precision
     model.train(

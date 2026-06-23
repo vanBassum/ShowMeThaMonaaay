@@ -161,18 +161,32 @@ def paste_item(img, icon_path, w_cells, h_cells, x, y, cell, rng, label=""):
     return (vx0, vy0, vx1, vy1)
 
 
+def _overlaps(box, placed):
+    """True if `box` (x0,y0,x1,y1) overlaps any rect in `placed`. Real inventory
+    items never overlap, so we reject any placement that would (touching is fine:
+    strict < keeps adjacent items, which the anti-merge pairs rely on)."""
+    x0, y0, x1, y1 = box
+    for (a, b, c, d) in placed:
+        if x0 < c and a < x1 and y0 < d and b < y1:
+            return True
+    return False
+
+
 def gen_image(items, rng):
     img = background(rng).convert("RGBA")
-    boxes = []
+    boxes = []                 # labelled item boxes (also used for overlap tests)
+    panels = []                # panel rects, kept non-overlapping
     cell = int(rng.integers(*CELL_RANGE))
-    # 1-3 grid panels, densely filled
+    # 1-3 grid panels, densely filled, never overlapping each other
     for _ in range(rng.integers(1, 4)):
         cols = int(rng.integers(2, max(3, TILE // cell)))
         rows = int(rng.integers(2, max(3, TILE // cell)))
         x0 = int(rng.integers(0, max(1, TILE - cols * cell)))
         y0 = int(rng.integers(0, max(1, TILE - rows * cell)))
-        if x0 + cols * cell > TILE or y0 + rows * cell > TILE:
+        prect = (x0, y0, x0 + cols * cell, y0 + rows * cell)
+        if prect[2] > TILE or prect[3] > TILE or _overlaps(prect, panels):
             continue
+        panels.append(prect)
         draw_panel(img, x0, y0, cols, rows, cell)
         occ = np.zeros((rows, cols), bool)
         attempts = int(cols * rows * rng.uniform(0.6, 1.1))   # denser packing
@@ -196,20 +210,25 @@ def gen_image(items, rng):
                                  y0 + r * cell, cell, rng, sn)
                 if bb2:
                     boxes.append(bb2)
-    # free-floating "equipment slot" items, some deliberately clipped at edges
+    # free-floating "equipment slot" items, some deliberately clipped at edges;
+    # never overlapping an already-placed item (retry a few spots, then give up)
     for _ in range(rng.integers(0, 4)):
         p, iw, ih, sn = items[rng.integers(0, len(items))]
         pw, ph = iw * cell, ih * cell
         if pw >= TILE or ph >= TILE:
             continue
-        if rng.random() < 0.3:                # partial: hang off an edge
-            x = int(rng.choice([-pw // 3, TILE - pw + pw // 3, rng.integers(0, TILE - pw)]))
-            y = int(rng.choice([-ph // 3, TILE - ph + ph // 3, rng.integers(0, TILE - ph)]))
-        else:
-            x, y = int(rng.integers(0, TILE - pw)), int(rng.integers(0, TILE - ph))
-        bb = paste_item(img, p, iw, ih, x, y, cell, rng, sn)
-        if bb:
-            boxes.append(bb)
+        for _try in range(6):
+            if rng.random() < 0.3:            # partial: hang off an edge
+                x = int(rng.choice([-pw // 3, TILE - pw + pw // 3, rng.integers(0, TILE - pw)]))
+                y = int(rng.choice([-ph // 3, TILE - ph + ph // 3, rng.integers(0, TILE - ph)]))
+            else:
+                x, y = int(rng.integers(0, TILE - pw)), int(rng.integers(0, TILE - ph))
+            cand = (max(0, x), max(0, y), min(TILE, x + pw), min(TILE, y + ph))
+            if not _overlaps(cand, boxes):
+                bb = paste_item(img, p, iw, ih, x, y, cell, rng, sn)
+                if bb:
+                    boxes.append(bb)
+                break
     draw_chrome(img, rng)                      # unboxed UI negatives
     return img.convert("RGB"), boxes
 

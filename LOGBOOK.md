@@ -5,6 +5,24 @@ See `CLAUDE.md` for the format rule.
 
 ---
 
+## 2026-06-23 — Non-overlapping synthetic items + dev epoch cap (`mask-detect-frontend`)
+
+**Why.** Real inventory items never overlap (grid-placed), but `gen_synth.py`
+placed free-floating "equipment" items and multiple panels with no overlap check,
+teaching the detector a wrong prior. (Grid items within a panel were already
+non-overlapping via the occupancy matrix.)
+
+**Change.** Track every placed item box; reject free-floating placements that
+overlap an existing item (6 retries then skip), and reject panels that overlap
+another panel. Touching is still allowed (strict `<`) so the anti-merge adjacent
+pairs survive. Verified: 502 boxes over 40 images, **0 overlapping pairs**.
+Also capped `train_yolo.py` at `DEV_MAX_EPOCHS=4` while developing.
+
+**Status: done, not yet retrained.** Next: regenerate dataset + 4-epoch train,
+re-run `--detect` to compare against the current weights.
+
+---
+
 ## 2026-06-23 — Pipe masked image into the existing detector (`mask-detect-frontend`)
 
 **What.** Added `--detect` to `mask_pipeline.py`: runs the current YOLO detector
