@@ -15,7 +15,7 @@ from ultralytics import YOLO
 ROOT = os.path.dirname(__file__)
 
 
-DEV_MAX_EPOCHS = 4              # capped while developing — raise for a real run
+DEV_MAX_EPOCHS = 16            # capped to guard against runaway runs — raise for more
 
 
 def main():
