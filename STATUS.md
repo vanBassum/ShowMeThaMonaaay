@@ -1,151 +1,138 @@
-# ShowMeThaMonaaay — Status & Next Steps
+# ShowMeThaMonaaay — Status & Plan
 
 Tarkov inventory valuer: screenshot your stash/loot, detect every item, identify
-it, and rank by ₽-per-slot. This doc is a handoff for continuing on another
-(more powerful) machine.
+it, rank by ₽-per-slot. Handoff + living plan. Chronological detail lives in
+`LOGBOOK.md`; this is the current picture.
 
-**Active branch: `grid-free`** (all current work is here, not `master`).
+**Active branch: `mask-detect-frontend`.**
 
 ---
 
-## Architecture (grid-free, resolution-independent)
+## ⚑ The key realization (2026-06-23)
 
-Two decoupled stages — **detection** (where) then **classification** (what):
+**The tarkov.dev icons we pulled from the internet do NOT match what the game
+renders** (different lighting/version/scale; our manuel crops are JPG on top).
+That single gap is behind a string of failures: template matching, pHash, the
+under-confident classifier, and pixel-faithful variant rendering. **We have been
+treating internet icons as ground truth, and they aren't.**
+
+**Consequence — the reference and training data must come from the GAME, not the
+internet.** Internet icons are still fine where exact appearance doesn't matter
+(rough priors), but not as the identification reference or the appearance source.
+
+---
+
+## Scope decision
+
+**Focus on RIG + BACKPACK contents only.** That's where haul value lives;
+equipped gear isn't swapped for ₽ mid-raid, so we don't need market value for it.
+This shrinks the relevant item set to a few hundred (not all ~5044).
+
+---
+
+## Architecture (current)
+
+Two decoupled stages — **detection (where)** then **identification (what)**:
 
 ```
-screenshot → YOLO detector → item boxes → crop each → classifier(s) → names → ₽/slot list
+screenshot → [classical mask front-end] → masked image → detector → item boxes
+                                                        → crop → identify (what) → ₽/slot
 ```
 
-- **Detector** = single-class ("item") YOLO, trained on synthetic inventory
-  composites. Finds item boxes anywhere; no cell grid, no fixed resolution.
-- **Classifier** = the "what is it" stage. We have **four independent methods**
-  and fuse them (agreement = high confidence):
-  | Method | Strength | Weakness |
-  |---|---|---|
-  | CNN (`cls.py`) | best all-rounder | under-confident on real crops |
-  | OCR (`ocr.py`) | great where the game prints the name | silent/noisy otherwise |
-  | pHash | ok tiebreaker | falls apart under offset/reframe |
-  | ORB | precise when it fires | usually silent (icons low-texture) |
+- **Mask front-end** (`mask_pipeline.py`, NEW, works): OCR finds container headers
+  → subdivide into containers (relative rules, no static sizes, resolution-indep)
+  → flood-fill background removal → items isolated on black. Removes the detector's
+  panel/UI/world false-positives *before* it runs.
+- **Detector**: single-class YOLO on the masked image. Retrained on black-bg,
+  non-overlapping synthetic data → masked detection improved (39→44 boxes, cleaner).
+  Trains at imgsz 640 / batch 8 to fit the 6 GB laptop GPU (capped 4 epochs in dev).
+- **Identification (what)**: the hard, still-open half. Internet-icon-based methods
+  (template match, pHash, CNN-on-synthetic) all fight the icon gap. **Must be rebuilt
+  on game-sourced references.**
 
-No grid / cell-pitch anywhere: detector is scale-invariant (trained across cell
-sizes), classifier letterbox→squash + a **scale-free aspect prior** replaces the
-old footprint mask. Works at any resolution.
+---
+
+## Repo map (current)
+
+| File | Role |
+|---|---|
+| `mask_pipeline.py` | **main front-end**: OCR containers → subdivide → bg-removal → masked image; `--detect` runs YOLO masked vs original |
+| `index.html` | manual box/grid **labeler** (zoom/pan/align-snap, loads/exports YOLO + `*.labels.json`); use via VS Code Live Preview |
+| `auto_localize.py` | **GT automation**: takes a "what" list (e.g. ChatGPT `*.labels.json`) and slides each known icon to find precise boxes |
+| `variants.py` | renders in-game icon **overlays** (FiR ✓, search highlight, search-category badge, count, durability, rotation); calibration blocked by the icon gap |
+| `template_match.py` | open-set icon ID — **negative result** (kept as a logged dead-end) |
+| `gen_synth.py` | synthetic YOLO dataset; `--black-frac` for masked-style bg; items never overlap |
+| `train_yolo.py` | train detector (imgsz 640 / batch 8 / `DEV_MAX_EPOCHS=4`) |
+| `detect_items.py` | detect→classify pipeline + `scan_pil()` API |
+| `cls*.py`, `ocr.py`, `compare.py`, `autolabel.py` | classifier + ensemble (synthetic-gap-limited; identification rebuild pending) |
+| `fetch_items.py`, `capture.py`, `ui.py` | item metadata, screen-grab, hotkey UI |
+| `manuel/` | real reference crops (highlight × found-in-raid combos) — JPG-sourced |
+| `refs/` | (empty) drop real PNG reference crops here |
+
+Git-ignored (regenerate): `data/`, `runs/`, `*.pt`, `out/`.
 
 ---
 
 ## Current state
 
-**Detection — good, being improved.**
-- Finds essentially all items on both test screenshots, any resolution.
-- Known issues: occasional **panel-sized / oversized** boxes, some **merged**
-  adjacent items, a few **misses** in dense stash.
-- A retrain is in progress with a richer generator + bigger model (see below).
-
-**Classification — the lagging half.**
-- Key finding: the CNN is usually **right but under-confident** on real crops
-  (true item often at p≈0.1–0.5, below the 0.40 gate) — a *calibration* problem
-  from the synthetic→real gap, **not** a knowledge gap. (`val_clean`≈0.94 on
-  clean icons; ~87% on its own augmentation.)
-- More synthetic epochs will NOT fix this. **Real labeled crops will.**
-- The ensemble (`compare.py`) already corrects individual-method errors via
-  consensus (e.g. fixes CNN's "SP BT" → "BCP FMJ").
-
-**Proven mechanism for the fix (the flywheel):**
-1. `compare.py --save` / `autolabel.py` → where ≥2 methods agree, save the crop
-   as a high-precision label to `data/labeled/<id>/` (zero manual work; OCR of
-   the game's printed name is a strong auto-label source).
-2. `train_cls.py --resume` mixes those real crops (oversampled) and fine-tunes.
-3. Better CNN → more agreement → more labels → repeat.
+- ✅ **Mask front-end** works; masked detection is cleaner than raw.
+- ✅ **Labeler + auto-localize** give us a path to a measurable ground-truth set.
+- ✅ **Variant overlays** modeled (FiR/highlight/search/rotation) — but pixel-faithful
+  calibration is blocked by the icon gap.
+- ⛔ **Identification** is the bottleneck, and it's blocked on **game-sourced data**.
+- ⚠️ No real eval set yet → improvements are eyeballed, not measured.
 
 ---
 
-## Repo map
+## Plan / next steps (prioritized)
 
-| File | Role |
-|---|---|
-| `fetch_items.py` | download item metadata + icons from tarkov.dev → `data/` |
-| `gen_synth.py` | generate synthetic YOLO detection dataset (real bg, UI negatives, adjacent pairs, partials) |
-| `train_yolo.py` | train the detector (currently `yolov8s` @ imgsz 960) |
-| `cls_model.py` | classifier net (MobileNetV3-small) + preprocessing |
-| `train_cls.py` | train/fine-tune classifier; `--resume` to continue; saves every epoch |
-| `cls.py` | classifier inference (+ aspect prior) |
-| `ocr.py` | Windows OCR of the printed item name |
-| `detect_items.py` | **main pipeline**: detect → classify → list + overlay; `scan_pil()` API |
-| `compare.py` | run+fuse all 4 methods; `--save` mints consensus labels |
-| `autolabel.py` | OCR+CNN agreement → auto-labeled real crops |
-| `methods_report.py` | 4 per-method overlays + `methods.txt` comparison table |
-| `ui.py` | Tkinter F2-hotkey UI (uses `scan_pil`) |
-| `capture.py` | screen-grab helper |
-
-Git-ignored (regenerate locally): `data/` (icons, items.json, cls.pt, yolo/,
-labeled/), `runs/`, `*.pt`, `out/`.
+1. **Get game-sourced data (PNG, not JPG).** Capture real rig/backpack screenshots.
+   - **Highlight transform** (in progress, user's idea): capture the *same* item
+     **with and without** highlight → pixel-diff = the exact highlight effect to
+     apply to a game-sourced base. Same trick can isolate FiR, search badge, etc.
+2. **Build a game-sourced reference set / training data.**
+   - Harvest real item crops from screenshots (use `auto_localize` + `index.html`
+     to label, then crop → a *real* icon gallery for the rig+backpack item set), OR
+   - **SPT (Single-Player Tarkov)**: stage known inventories, auto-capture with
+     ground truth → real labeled boxes *and* crops at scale, no manual labeling.
+     Promoted from "parked" to the recommended route.
+3. **Real-grid generator.** Define grids on real empty rig/backpack shots, composite
+   game-sourced item crops (+ calibrated variants) into them → realistic training
+   data with exact auto-labels. Train the detector on that.
+4. **Stand up the eval set.** Auto-localize + manual fixups in `index.html` → real
+   ground-truth boxes → `eval.py` (TODO) scores detector (masked vs original) so
+   "did it help?" becomes a number.
+5. **Rebuild identification on game-sourced references.** Then template match /
+   embedding retrieval (DINOv2) actually has a fair shot (game→game, not game→internet).
 
 ---
 
-## Setup on the new machine
+## Key lessons (don't re-discover)
+
+- **Internet icons ≠ game render.** The dominant gap; see the realization above.
+  Source references/appearance from the game.
+- **Masking before detection works** — removes panel/UI/world false positives;
+  train the detector on the same masked (black-bg) distribution.
+- **Template matching**: useless for open-set ID, but good for **localizing a KNOWN
+  icon** (slide → peak) — that's what powers `auto_localize`.
+- **Real inventory items never overlap** (grid) — synthetic must not overlap either.
+- **pHash needs near-perfect framing**; don't rely on it.
+- **6 GB VRAM**: yolov8s @960 batch16 spills (~10× slower). Use imgsz 640 / batch 8.
+
+---
+
+## Setup
 
 ```bash
 pip install ultralytics imagehash opencv-python keyboard winsdk
-# GPU: install CUDA torch (match your CUDA), e.g.
+# GPU: install CUDA torch, e.g.
 pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu126
 
-python fetch_items.py                 # → data/items.json + data/icons/ (~5044)
-python gen_synth.py --n 3000 --val 300
-python train_yolo.py 40                # detector
-python train_cls.py 16                 # classifier
-python detect_items.py "test screenshot 1.png"
+python fetch_items.py                          # → data/items.json + data/icons/
+python gen_synth.py --n 3000 --val 300 --black-frac 1.0
+python train_yolo.py                           # detector (capped 4 epochs in dev)
+python mask_pipeline.py --detect               # front-end + masked-vs-original detect
 ```
 
-Everything auto-uses CUDA if available, else CPU. GPU-trained weights run on CPU
-too (device-portable).
-
-**VRAM note (important):** detector batch×imgsz must fit GPU VRAM. On a 6 GB
-card, `yolov8s` @ imgsz 960 batch 16 needs ~8.8 GB → it silently spills to
-shared system memory and runs ~10× slower (~20 s/iter). Keep it under VRAM:
-- 6 GB: `yolov8s` @ 768 batch 4–6, or `yolov8n` @ 960 batch 8.
-- ≥12 GB (the new machine): `yolov8m/l` @ 1280, batch 16+ — set these in
-  `train_yolo.py`. Watch the `GPU_mem` column; if it exceeds your card, lower
-  batch or imgsz.
-
----
-
-## Next steps (prioritized)
-
-**1. Finish detection (in progress — do first; it gates classification).**
-- Validate the current retrain (`yolov8s` @960 + richer generator) on both
-  screenshots: are panel/merge/miss cases reduced?
-- With more powerful hardware, scale up: **`yolov8m`/`l`**, **imgsz 1280**,
-  **`gen_synth --n 5000+`**, full epoch count. Add **multi-scale / TTA** at
-  inference. (Generator already has: real-bg, UI negatives, anti-merge pairs,
-  partials.)
-
-**2. Fix classifier confidence via the real-data flywheel.**
-- Run `compare.py --save` over many screenshots → consensus labels.
-- `train_cls.py --resume` to fine-tune on real crops; raise `REAL_OVERSAMPLE`
-  with more data. Re-measure named-count + correctness on a held-out shot.
-- Tune the ensemble: tighten OCR (drop 1-char "T" matches), try **AKAZE**
-  (more features than ORB on icons), tune vote weights in `compare.py`.
-
-**3. Bigger real-data source (parked idea).**
-- Single Player Tarkov (SPT): stage known inventories → capture screenshots with
-  ground-truth → auto labeled data for detector AND classifier. Best long-term
-  fix for the synthetic→real gap.
-
-**4. Build the human-in-the-loop reviewer** for the residual <2-agreement crops
-   (show crop + top-5 candidates, one-click confirm → label). Mostly confirming,
-   since the CNN's top-1 is usually right.
-
-**5. Polish**: resolution-proportional filters already in `detect_items.py`;
-   verify on a 1080p/ultrawide shot. Re-wire `ui.py` value report end-to-end.
-
----
-
-## Key lessons learned (don't re-discover)
-- **Detection is not the naming bottleneck — calibration is.** The CNN knows the
-  items; it's just unsure on real crops. Real labels > more synthetic epochs.
-- **No single classifier is reliable; their agreement is.** Build on consensus.
-- **pHash needs near-perfect framing** (1–2px offset ⇒ distance explodes); only a
-  tiebreaker. CNN/ORB/OCR are offset-robust.
-- **Squash beats letterbox** for elongated items (keeps detail); aspect is fed
-  back as a separate prior.
-- The old grid + perceptual-hash approach was removed; don't reintroduce cells.
+Cloud GPU for bigger runs: Kaggle CLI is configured (see memory). Device-portable
+weights (GPU-trained `best.pt` runs on CPU for inference).

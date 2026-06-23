@@ -5,6 +5,25 @@ See `CLAUDE.md` for the format rule.
 
 ---
 
+## 2026-06-23 — KEY REALIZATION: internet icons ≠ game render (`mask-detect-frontend`)
+
+**Finding.** Pulled tarkov.dev icons do not match what the game draws (lighting,
+version, scale; manuel crops are JPG too). Measuring a real highlighted cell gave a
+cool blue-gray border [57,80,86] — nowhere near assumptions. This gap is the root
+cause behind template matching, pHash, the under-confident classifier, and the
+failure to render pixel-faithful variants.
+
+**Decision.** Stop treating internet icons as ground truth. Source the
+identification reference AND appearance data from the GAME. Scope narrowed to
+**rig + backpack** (where haul value is). STATUS.md rewritten to this plan.
+
+**Next (user's idea):** capture the same item WITH and WITHOUT highlight → pixel-diff
+= the exact highlight transform, applied to a game-sourced base. Then build a
+game-sourced reference set (harvest real crops, or SPT for scale) + real-grid
+generator + a measurable eval set. **Status: pivot logged; awaiting real PNG data.**
+
+---
+
 ## 2026-06-23 — Icon-variant overlays calibrated from real crops (`mask-detect-frontend`)
 
 **Why.** Clean icons ≠ what the game draws. Plan: model overlays as a generator
