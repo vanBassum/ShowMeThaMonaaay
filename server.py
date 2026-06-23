@@ -27,6 +27,9 @@ import detect_items as di
 import cls
 import ocr as ocrmod
 import mask_pipeline as mp
+import retrieval
+
+RET_OK = 0.80          # cosine sim to a gallery crop above this == trust retrieval
 
 ROOT = os.path.dirname(__file__)
 DATA = os.path.join(ROOT, "data")
@@ -41,16 +44,23 @@ os.makedirs(GCROPS, exist_ok=True)
 app = Flask(__name__, static_folder=None)
 _ITEMS = None
 _NORM = None
+_BYID = None
 
 
 def items_list():
-    global _ITEMS, _NORM
+    global _ITEMS, _NORM, _BYID
     if _ITEMS is None:
         raw = json.load(open(os.path.join(DATA, "items.json"), encoding="utf-8"))
         _ITEMS = [it for it in raw if it.get("gridImageLink")]
         _NORM = [( (it.get("shortName", "") + " " + it.get("name", "")).lower(), it)
                  for it in _ITEMS]
+        _BYID = {it["id"]: it for it in _ITEMS}
     return _ITEMS
+
+
+def cand_dict(it, prob, src):
+    return {"id": it["id"], "short": it.get("shortName", ""),
+            "name": it.get("name", ""), "prob": round(float(prob), 3), "src": src}
 
 
 def price_of(it):
@@ -68,10 +78,12 @@ def match_ocr(text):
     best, bs = None, 0.0
     for norm, it in _NORM:
         for cand in (it.get("shortName", "").lower(), it.get("name", "").lower()):
-            if not cand:
+            if len(cand) < 3:
                 continue
             r = difflib.SequenceMatcher(None, t, cand).ratio()
-            if t in cand or cand in t:
+            # substring boost only for reasonably long candidates, so a 2-3 char
+            # short name (e.g. "DE") can't match inside any longer OCR string
+            if len(cand) >= 5 and (t in cand or cand in t):
                 r = max(r, 0.85)
             if r > bs:
                 bs, best = r, it
@@ -98,25 +110,42 @@ def scan(image_name, conf=0.25):
         cands = cls.classify(crop, topn=5, box_aspect=ar)
         otext = ocrmod.ocr(ocrmod.prep(crop)).strip()
         om = match_ocr(otext)
+        ret = retrieval.query(crop, topk=3)               # [(item_id, sim)] over real gallery
+        ret_best = ret[0] if ret else None
 
         top_it, top_p = cands[0]
+        # vote priority: OCR (gap-immune) > retrieval (game→game) > CNN
         if om and om[1] >= 0.8:
-            chosen, status, src = om[0], "sure", "ocr"
+            chosen, status, src, conf = om[0], "sure", "ocr", om[1]
+        elif ret_best and ret_best[1] >= RET_OK:
+            chosen, status, src, conf = _BYID[ret_best[0]], "sure", "retrieval", ret_best[1]
         elif top_p >= di.PROB_OK:
-            chosen, status, src = top_it, "sure", "cnn"
+            chosen, status, src, conf = top_it, "sure", "cnn", top_p
+        elif ret_best and ret_best[1] >= 0.55:
+            chosen, status, src, conf = _BYID[ret_best[0]], "uncertain", "retrieval", ret_best[1]
         else:
-            chosen, status, src = top_it, "uncertain", "cnn"
+            chosen, status, src, conf = top_it, "uncertain", "cnn", top_p
+
+        # candidates: chosen first (so the UI pre-selects the AI's pick), then
+        # retrieval matches, then CNN top-5; deduped.
+        cand_out, seen = [], set()
+        def add(it_, prob, tag):
+            if it_ and it_["id"] not in seen:
+                seen.add(it_["id"]); cand_out.append(cand_dict(it_, prob, tag))
+        add(chosen, conf, src)
+        for iid, s in ret:
+            add(_BYID.get(iid), s, "retrieval")
+        for it_, p in cands:
+            add(it_, p, "cnn")
 
         w, h = chosen.get("width", 1), chosen.get("height", 1)
         out.append({
             "box": [x0, y0, x1, y1], "score": round(float(score), 3),
             "id": chosen["id"], "name": chosen.get("name", chosen["id"]),
             "short": chosen.get("shortName", chosen["id"]),
-            "prob": round(top_p, 3), "ocr": otext, "src": src, "status": status,
+            "prob": round(float(conf), 3), "ocr": otext, "src": src, "status": status,
             "price": price_of(chosen), "slots": max(1, w * h),
-            "candidates": [{"id": it["id"], "short": it.get("shortName", ""),
-                            "name": it.get("name", ""), "prob": round(p, 3)}
-                           for it, p in cands],
+            "candidates": cand_out,
         })
     return {"image": {"name": image_name, "width": W, "height": H}, "items": out}
 

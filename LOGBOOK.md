@@ -5,6 +5,31 @@ See `CLAUDE.md` for the format rule.
 
 ---
 
+## 2026-06-23 — Embedding-retrieval voter + review-UI polish (`mask-detect-frontend`)
+
+**Retrieval voter (`retrieval.py`).** Reuse the trained IconNet as a feature
+extractor (512-d pre-head activation); embed each crop and match against the
+TRUSTED gallery crops (corrected, or OCR-sure) — game→game, so the icon gap
+cancels. Wired into `/api/scan` fusion: vote priority **OCR > retrieval > CNN**,
+with a reject/uncertain threshold. Empty gallery → silent (verified). As the user
+corrects, the gallery fills and retrieval kicks in.
+
+**Fixes.** OCR matcher no longer lets a 2-char short name ("DE") substring-match
+inside a long OCR string (caused a wrong pick not even in the suggestions).
+Candidates now always lead with the chosen item so the UI can pre-select it.
+
+**Review UI.** Dropped the confusing "current" header — the AI's pick is the
+pre-selected (highlighted) row in the suggestion list, change if wrong. Click
+cycles through stacked/overlapping boxes (smallest-first). Selected box gets a
+white halo + fill; unselected boxes drawn thin. List view = two sortable tables
+(grab=most ₽/slot, skip=least ₽/slot) with clickable headers incl. a **conf**
+column to surface low-confidence problem items. Clicking a list row corrects
+in place (bigger crop preview in the panel) without leaving list view.
+
+**Status: usable review loop; retrieval ready to learn from corrections.**
+
+---
+
 ## 2026-06-23 — Review/correct backend + UI (`mask-detect-frontend`)
 
 **Why.** Settled the flywheel UX: detector proposes (high recall), human relabels

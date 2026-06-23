@@ -83,23 +83,34 @@ function draw(){
   if(!W) return;
   ctx.setTransform(scale,0,0,scale,0,0);
   ctx.clearRect(0,0,W,H); ctx.drawImage(imgEl,0,0,W,H);
-  ctx.lineWidth=2/scale; ctx.font=`${13/scale}px system-ui`; ctx.textBaseline='bottom';
-  data.items.forEach((it,i)=>{
-    const [x0,y0,x1,y1]=it.box, c=COL[it.status]||'#999', on=i===sel;
-    ctx.strokeStyle=c; ctx.lineWidth=(on?3.5:2)/scale;
-    ctx.strokeRect(x0,y0,x1-x0,y1-y0);
-    ctx.fillStyle=c; ctx.fillText((it.short||'?'), x0+2/scale, y0-2/scale);
-  });
+  ctx.font=`${13/scale}px system-ui`; ctx.textBaseline='bottom';
+  // draw unselected (thin) first, selected last (on top, highlighted)
+  const order=data.items.map((_,i)=>i).filter(i=>i!==sel); if(sel>=0) order.push(sel);
+  for(const i of order){
+    const it=data.items[i], [x0,y0,x1,y1]=it.box, w=x1-x0, h=y1-y0, c=COL[it.status]||'#999', on=i===sel;
+    if(on){
+      ctx.globalAlpha=0.18; ctx.fillStyle=c; ctx.fillRect(x0,y0,w,h); ctx.globalAlpha=1;
+      ctx.strokeStyle='#fff'; ctx.lineWidth=5/scale; ctx.strokeRect(x0,y0,w,h);   // white halo
+      ctx.strokeStyle=c;      ctx.lineWidth=2.5/scale; ctx.strokeRect(x0,y0,w,h);
+    } else {
+      ctx.strokeStyle=c; ctx.lineWidth=1.3/scale; ctx.strokeRect(x0,y0,w,h);
+    }
+    ctx.fillStyle=on?'#fff':c; ctx.fillText((it.short||'?'), x0+2/scale, y0-2/scale);
+  }
 }
 function hit(p){ for(let i=data.items.length-1;i>=0;i--){ const [a,b,c,d]=data.items[i].box; if(p.x>=a&&p.x<=c&&p.y>=b&&p.y<=d) return i; } return -1; }
+// all boxes under p, smallest-first (so stacked boxes are reachable by repeated clicks)
+function hitsAt(p){ const r=[]; data.items.forEach((it,i)=>{ const [a,b,c,d]=it.box; if(p.x>=a&&p.x<=c&&p.y>=b&&p.y<=d) r.push(i); });
+  return r.sort((i,j)=>{ const A=data.items[i].box, B=data.items[j].box; return (A[2]-A[0])*(A[3]-A[1])-(B[2]-B[0])*(B[3]-B[1]); }); }
+function cycleSelect(p){ const hs=hitsAt(p); if(!hs.length){ sel=-1; return; } const k=hs.indexOf(sel); sel=hs[(k+1)%hs.length]; }
 function evToImg(e){ const r=cv.getBoundingClientRect(); return {x:(e.clientX-r.left)/scale,y:(e.clientY-r.top)/scale}; }
 
 // ---- selection panel ----
 function cropPreview(it){
-  const [x0,y0,x1,y1]=it.box, w=x1-x0, h=y1-y0, s=Math.min(120/w,120/h,2);
+  const [x0,y0,x1,y1]=it.box, w=x1-x0, h=y1-y0, s=Math.min(260/w,260/h,3);
   const c=document.createElement('canvas'); c.width=w*s; c.height=h*s;
   c.getContext('2d').drawImage(imgEl, x0,y0,w,h, 0,0,w*s,h*s);
-  c.style.background='#000'; c.style.borderRadius='6px'; return c;
+  c.style.background='#000'; c.style.borderRadius='6px'; c.style.maxWidth='100%'; return c;
 }
 function assign(it, item){
   it.id=item.id; it.short=item.short||item.shortName||''; it.name=item.name||'';
@@ -108,12 +119,9 @@ function assign(it, item){
 }
 function selPanel(){
   const p=$('panel'); p.innerHTML='';
-  if(sel<0){ p.innerHTML='<h3>select a box</h3><small>Click an item box. Green=sure, orange=uncertain, blue=corrected.</small>'; return; }
+  if(sel<0){ p.innerHTML='<h3>select a box</h3><small>Click an item box; click again to cycle stacked boxes. Green=sure, orange=uncertain, blue=corrected. The AI\'s pick is pre-selected in the list.</small>'; return; }
   const it=data.items[sel];
   p.appendChild(cropPreview(it));
-  const cur=document.createElement('div');
-  cur.innerHTML=`<h3>current</h3><b style="color:${COL[it.status]}">${it.short}</b> <small>(${it.status}/${it.src} p=${it.prob})</small><br><small>OCR: ${it.ocr||'—'} · ${it.price.toLocaleString()} ₽</small>`;
-  p.appendChild(cur);
   const fl=document.createElement('button'); fl.textContent = it.status==='fluke'?'unmark fluke':'mark as fluke';
   fl.onclick=()=>{ it.status = it.status==='fluke' ? 'corrected' : 'fluke'; draw(); renderList(); updateTotals(); selPanel(); };
   p.appendChild(fl);
@@ -133,19 +141,36 @@ function selPanel(){
   sh.appendChild(si); sh.appendChild(sr); p.appendChild(sh); si.focus();
 }
 
-// ---- list view ----
-function renderList(){
+// ---- list view: two sortable tables (grab vs skip), clickable headers ----
+const COLS=[ {k:'short',label:'item',val:it=>(it.short||'').toLowerCase()},
+  {k:'perslot',label:'₽/slot',val:it=>it.price/Math.max(1,it.slots)},
+  {k:'price',label:'₽',val:it=>it.price},
+  {k:'conf',label:'conf',val:it=>it.prob} ];
+let sortL={k:'perslot',dir:-1}, sortR={k:'perslot',dir:1};
+function buildTable(title, s, side){
+  const col=COLS.find(c=>c.k===s.k);
   const rows=data.items.map((it,i)=>({it,i})).filter(x=>x.it.status!=='fluke')
-    .sort((a,b)=>(b.it.price/Math.max(1,b.it.slots))-(a.it.price/Math.max(1,a.it.slots)));
-  let html='<table><tr><th></th><th>item</th><th>₽</th><th>slots</th><th>₽/slot</th><th>status</th></tr>';
+    .sort((a,b)=>{ const va=col.val(a.it),vb=col.val(b.it); return (va<vb?-1:va>vb?1:0)*s.dir; });
+  let h=`<div style="flex:1;min-width:0"><h3 style="color:var(--muted);margin:4px 0">${title}</h3><table><tr><th></th>`;
+  COLS.forEach(c=>{ const ar=s.k===c.k?(s.dir<0?' ▼':' ▲'):''; h+=`<th data-col="${c.k}" data-side="${side}">${c.label}${ar}</th>`; });
+  h+='</tr>';
   for(const {it,i} of rows){
-    html+=`<tr data-i="${i}" style="cursor:pointer"><td><img src="/api/icon?id=${it.id}"></td>`+
-      `<td>${it.short}<br><small>${it.name}</small></td><td>${it.price.toLocaleString()}</td>`+
-      `<td>${it.slots}</td><td>${Math.round(it.price/Math.max(1,it.slots)).toLocaleString()}</td>`+
-      `<td><span class="dot" style="background:${COL[it.status]}"></span> ${it.status}</td></tr>`;
+    h+=`<tr data-i="${i}" style="cursor:pointer"><td><img src="/api/icon?id=${it.id}"></td>`+
+      `<td>${it.short}<br><small>${it.name}</small></td>`+
+      `<td>${Math.round(it.price/Math.max(1,it.slots)).toLocaleString()}</td>`+
+      `<td>${it.price.toLocaleString()}</td>`+
+      `<td><span class="dot" style="background:${COL[it.status]}"></span> ${(+it.prob).toFixed(2)}</td></tr>`;
   }
-  $('list').innerHTML=html+'</table>';
-  $('list').querySelectorAll('tr[data-i]').forEach(tr=>tr.onclick=()=>{ sel=+tr.dataset.i; viewScreen(); draw(); selPanel(); });
+  return h+'</table></div>';
+}
+function renderList(){
+  $('list').innerHTML=`<div style="display:flex;gap:16px">`+
+    buildTable('Grab — most ₽/slot',sortL,'L')+buildTable('Skip — least ₽/slot',sortR,'R')+`</div>`;
+  $('list').querySelectorAll('th[data-col]').forEach(th=>th.onclick=()=>{
+    const s=th.dataset.side==='L'?sortL:sortR, k=th.dataset.col;
+    if(s.k===k) s.dir*=-1; else { s.k=k; s.dir=(k==='short')?1:-1; }
+    renderList(); });
+  $('list').querySelectorAll('tr[data-i]').forEach(tr=>tr.onclick=()=>{ sel=+tr.dataset.i; selPanel(); draw(); });
 }
 function updateTotals(){
   const act=data.items.filter(it=>it.status!=='fluke');
@@ -161,7 +186,7 @@ function viewList(){ $('stage').style.display='none'; $('list').style.display='b
 
 // ---- mouse: select / pan / zoom ----
 cv.addEventListener('mousedown',e=>{ if(e.button===1||(e.button===0&&space)){ pan={x:e.clientX,y:e.clientY,sl:stage.scrollLeft,st:stage.scrollTop}; cv.style.cursor='grabbing'; e.preventDefault(); return; }
-  if(e.button!==0||!data) return; sel=hit(evToImg(e)); draw(); selPanel(); });
+  if(e.button!==0||!data) return; cycleSelect(evToImg(e)); draw(); selPanel(); });
 window.addEventListener('mousemove',e=>{ if(pan){ stage.scrollLeft=pan.sl-(e.clientX-pan.x); stage.scrollTop=pan.st-(e.clientY-pan.y); } });
 window.addEventListener('mouseup',()=>{ if(pan){ pan=null; cv.style.cursor=space?'grab':'default'; } });
 cv.addEventListener('contextmenu',e=>{ e.preventDefault(); if(!data) return; const i=hit(evToImg(e)); if(i<0) return; const it=data.items[i]; it.status = it.status==='fluke'?'corrected':'fluke'; draw(); renderList(); updateTotals(); });
