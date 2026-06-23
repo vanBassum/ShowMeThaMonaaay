@@ -37,6 +37,7 @@
   <span id="status" class="pill">—</span>
   <span class="pill">drag body = move · corner = resize · Del = remove · Space+drag = pan</span>
 </header>
+<div id="thumbs" style="display:flex;gap:6px;overflow-x:auto;padding:6px 12px;background:var(--panel);border-bottom:1px solid var(--line);flex:0 0 auto"></div>
 <div id="main">
   <div id="stage"><canvas id="cv"></canvas></div>
   <div id="panel"><h3>grids</h3><div id="list" class="grow"></div><div id="props"></div></div>
@@ -55,15 +56,21 @@ async function loadSessions(want){
   const list = await api('/api/sessions'); const s=$('sess'); s.innerHTML='';
   list.forEach(o=>{ const e=document.createElement('option'); e.value=o.id; e.textContent=o.id; s.appendChild(e); });
   if(want && list.some(o=>o.id===want)) s.value=want;
+  const T=$('thumbs'); T.innerHTML='';
+  list.forEach(o=>{ const im=document.createElement('img'); im.src='/api/image?session='+encodeURIComponent(o.id);
+    im.title=o.id; im.dataset.id=o.id;
+    im.style.cssText='height:58px;border:2px solid transparent;border-radius:4px;cursor:pointer;flex:0 0 auto;background:#000';
+    im.onclick=()=>{ $('sess').value=o.id; load(); }; T.appendChild(im); });
   return list;
 }
+function markThumb(id){ document.querySelectorAll('#thumbs img').forEach(im=>{ im.style.borderColor = im.dataset.id===id?'var(--accent)':'transparent'; }); }
 async function load(){
   const sid=$('sess').value; if(!sid) return; curSession=sid;
   imgEl.src='/api/image?session='+encodeURIComponent(sid)+'&t='+Date.now();
   await new Promise(r=>{imgEl.onload=r;imgEl.onerror=r;});
   W=imgEl.naturalWidth; H=imgEl.naturalHeight;
   grids = await api('/api/grids?session='+encodeURIComponent(sid));
-  sel = grids.length?0:-1; resize(); draw(); renderList(); renderProps();
+  sel = grids.length?0:-1; resize(); draw(); renderList(); renderProps(); markThumb(sid);
   status(`${grids.length} grid(s)`);
 }
 function resize(){ cv.width=Math.round(W*scale); cv.height=Math.round(H*scale); }
