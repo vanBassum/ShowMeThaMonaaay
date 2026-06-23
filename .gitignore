@@ -6,6 +6,9 @@ out/
 screenshots/
 test screenshot*.png
 
+# backend scan cache + saved corrections
+sessions/
+
 # YOLO: training runs + downloaded base weights (data/yolo dataset covered by data/)
 runs/
 *.pt

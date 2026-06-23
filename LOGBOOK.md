@@ -5,6 +5,32 @@ See `CLAUDE.md` for the format rule.
 
 ---
 
+## 2026-06-23 — Review/correct backend + UI (`mask-detect-frontend`)
+
+**Why.** Settled the flywheel UX: detector proposes (high recall), human relabels
+wrong classifications via click→search/select; missed boxes out of scope. Needs a
+backend (static HTML can't run detection or save).
+
+**Built.**
+- `server.py` (Flask): `/api/scan` masks → YOLO detect → per-crop classify
+  (**CNN top-5 + gap-immune OCR** of printed name) → JSON, cached to `sessions/`;
+  `/api/image`, `/api/icon`, `/api/search` (item lookup w/ thumbnails), `/api/save`.
+  Structural flukes dropped by `keep_box`; low-confidence flagged `uncertain` (NOT
+  hard-rejected — icon gap makes CNN confidence unreliable).
+- `index.html` rewritten as review UI: boxes colored by status, click→suggestions
+  +search relabel, list/screenshot toggle, ₽ total, zoom/pan, Save→POST.
+- `mask_pipeline.build_masked(pil)` extracted for reuse.
+
+**Result: works end-to-end.** 44 items on test screenshot (~11.5s first scan, then
+cached). OCR already rescues items the CNN whiffs (RedRebel/Surv12 at CNN p≈0.01).
+CNN guesses often wrong (icon gap, expected) — that's what the UI corrects. Some
+boxes over equipment labels OCR'd UI text → flukes the user marks.
+
+**Next:** wire saved corrections into a real-crop gallery + fine-tune; embedding
+retrieval voter; then the live F2 capture→store loop. **Status: usable tool.**
+
+---
+
 ## 2026-06-23 — KEY REALIZATION: internet icons ≠ game render (`mask-detect-frontend`)
 
 **Finding.** Pulled tarkov.dev icons do not match what the game draws (lighting,

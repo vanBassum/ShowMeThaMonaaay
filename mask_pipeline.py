@@ -298,6 +298,30 @@ def region_foreground(crop, threshold):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+def build_masked(pil, flood_thresh=22.0):
+    """Run the OCR→subdivide→flood front-end and return (masked_pil, mask) where
+    masked_pil has the background blacked out (the detector's input). Reusable by
+    the backend; mirrors the step-3 logic in main()."""
+    img = pil.convert("RGB")
+    rgb = np.asarray(img)
+    H, W, _ = rgb.shape
+    gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+    lines = read_lines(img)
+    containers = find_containers(lines)
+    qy = quick_use_y(lines, H)
+    regions, _ = subdivide(containers, W, qy, gray)
+    mask = np.zeros((H, W), dtype=np.uint8)
+    for r in regions:
+        x0, y0, x1, y1 = r["rect"]
+        x0, y0, x1, y1 = max(0, x0), max(0, y0), min(W, x1), min(H, y1)
+        if x1 - x0 < 8 or y1 - y0 < 8:
+            continue
+        mask[y0:y1, x0:x1] = region_foreground(rgb[y0:y1, x0:x1], flood_thresh)
+    masked = rgb.copy()
+    masked[mask == 0] = 0
+    return Image.fromarray(masked), mask
+
+
 def _font(size):
     for n in ("arialbd.ttf", "arial.ttf", "DejaVuSans-Bold.ttf"):
         try:
