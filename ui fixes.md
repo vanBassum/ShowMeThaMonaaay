@@ -22,3 +22,16 @@ index.html needs:
 - 
 
 
+--- PLAN ---
+
+
+
+Make sure we can generate testdata:
+- Get screenshots with empty backpacks and rigs. Some different ones.
+- Figure out the grids, manually.
+- Make the icon generator.
+
+
+Icon generator:
+- Take screenshots, so we can diff between highlighed and non highlighed icons. So we can generate from the base icons.
+
