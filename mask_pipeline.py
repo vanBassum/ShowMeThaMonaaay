@@ -83,71 +83,119 @@ def read_lines(img, scale=2, cutoff=1):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Step 1 — container labels.
+# Step 1 — container labels (ported from the proven money2/349fcbe detectors).
+# OCR every line, fuzzy-match its text against the known container header names.
 # ─────────────────────────────────────────────────────────────────────────────
-# Header text the game prints above inventory containers. Matched loosely
-# (uppercased, substring) so partial OCR ("TACTICAL" / "RIG") still anchors.
-CONTAINER_LABELS = [
-    "STASH", "POCKETS", "TACTICAL RIG", "RIG", "BACKPACK", "SECURE CONTAINER",
-    "POUCH", "ARMOR VEST", "BODY ARMOR", "SCABBARD", "ON SLING", "ON BACK",
-    "HOLSTER", "EQUIPMENT", "SPECIAL SLOTS", "POCKET",
-]
+import difflib
+
+NAMES = ["EARPIECE", "HEADWEAR", "FACE COVER", "ARMBAND", "BODY ARMOR", "EYEWEAR",
+         "DOGTAG", "ON SLING", "ON BACK", "HOLSTER", "SHEATH", "TACTICAL RIG",
+         "POCKETS", "BACKPACK", "SPECIAL SLOTS", "SECURED CONTAINER", "STASH",
+         "SCABBARD", "POUCH"]
 
 
-def is_container_label(text):
-    up = "".join(c for c in text.upper() if c.isalpha() or c.isspace()).strip()
-    if not up:
-        return None
-    for lab in CONTAINER_LABELS:
-        if lab == up or up.startswith(lab) or lab.startswith(up) and len(up) >= 4:
-            return lab
-    return None
+def match_name(text):
+    u = text.upper().strip()
+    if u in NAMES:
+        return u
+    m = difflib.get_close_matches(u, NAMES, n=1, cutoff=0.82)
+    return m[0] if m else None
+
+
+def quick_use_y(lines, default):
+    """Y of the 'QUICK USE' bar label — used as the working bottom so the
+    bottom quick-use slot strip (and HUD below it) is never masked."""
+    for text, x, y, w, h in lines:
+        u = text.upper().strip()
+        if u == "QUICK USE" or difflib.get_close_matches(u, ["QUICK USE"], n=1, cutoff=0.8):
+            return y
+    return default
 
 
 def find_containers(lines):
-    """Return [(label, x, y, w, h)] for OCR lines that name a container."""
-    hits = []
+    """Return [(name, x, y, w, h)] for OCR lines that name a container."""
+    out = []
     for text, x, y, w, h in lines:
-        lab = is_container_label(text)
-        if lab:
-            hits.append((lab, x, y, w, h))
-    return hits
+        name = match_name(text)
+        if name:
+            out.append((name, x, y, w, h))
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Step 2 — subdivision: one region per container, anchored on its label.
-# Columns are clustered by label x; within a column, each container spans from
-# its label down to the next label (or image bottom).
+# Step 2 — subdivision (resolution-independent).
+#
+# No static sizes. Every container header gets a generous SEARCH region bounded
+# by its neighbours, derived purely from relative geometry:
+#   right  = nearest header to the right on the same row    (else panel edge)
+#   bottom = nearest header below within this header's x-band(else panel bottom)
+# Panels (the 3 columns) are found from the dark vertical gutters so a region
+# never crosses between equipment / your-gear / loot panels.
+# The real item box inside each region is recovered later by flood-fill (step 3),
+# so the exact pixel size of a slot never needs to be known in advance.
+#
+# GRID containers are tall (their height depends on contents); SLOT containers
+# hold one item. The only thing the type changes is the default x-band/extent
+# used when a header has no neighbour to bound it.
 # ─────────────────────────────────────────────────────────────────────────────
-def subdivide(containers, W, H, col_tol=None):
-    if not containers:
-        return []
-    col_tol = col_tol or W // 8
-    # cluster labels into columns by x
-    cs = sorted(containers, key=lambda c: c[1])
-    cols = []  # list of [members]
-    for c in cs:
-        placed = False
-        for col in cols:
-            if abs(col[0][1] - c[1]) <= col_tol:
-                col.append(c); placed = True; break
-        if not placed:
-            cols.append([c])
-    cols.sort(key=lambda col: min(m[1] for m in col))
-    col_x = [min(m[1] for m in col) for col in cols]
-    col_right = [col_x[i + 1] for i in range(len(cols) - 1)] + [W]
+GRID_NAMES = {"TACTICAL RIG", "BACKPACK", "POCKETS", "SPECIAL SLOTS", "STASH",
+              "LOOT", "SECURED CONTAINER"}
 
-    regions = []
-    for ci, col in enumerate(cols):
-        col.sort(key=lambda m: m[2])  # by y
-        x0 = col_x[ci]
-        x1 = col_right[ci]
-        for mi, (lab, lx, ly, lw, lh) in enumerate(col):
-            top = ly + lh  # region body starts just below the label
-            bottom = col[mi + 1][2] if mi + 1 < len(col) else H
-            regions.append({"label": lab, "rect": (x0, top, x1, bottom),
-                            "label_box": (lx, ly, lw, lh)})
-    return regions
+
+def panels(gray, headers):
+    """Split the screen into vertical panels. The middle|right divider is a
+    strong dark full-height gutter; the equipment|gear divider has no brightness
+    signal, so derive it from where the grid containers start. Returns sorted
+    [(x0, x1)] panel spans. All thresholds are relative to W."""
+    W = gray.shape[1]
+    band = gray[200:1000, :].astype(float).mean(0)
+    strong = []
+    for i in np.argsort(band):
+        if band[i] > 12:
+            break
+        if all(abs(i - j) > 200 for j in strong):
+            strong.append(int(i))
+    right_div = min([g for g in strong if 0.5 * W < g < 0.78 * W], default=int(W * 0.64))
+    grid_xs = [hx for (n, hx, hy, w, h) in headers
+               if n in GRID_NAMES and hx < right_div]
+    left_div = (min(grid_xs) - 35) if grid_xs else int(W * 0.33)
+    bounds = sorted({0, left_div, right_div, W})
+    return [(bounds[i], bounds[i + 1]) for i in range(len(bounds) - 1)]
+
+
+def _panel_of(x, pans):
+    for x0, x1 in pans:
+        if x0 <= x < x1:
+            return (x0, x1)
+    return (0, pans[-1][1])
+
+
+def subdivide(headers, W, bottom, gray):
+    """Generous, neighbour-bounded search region per header — no static sizes.
+    `bottom` is the working bottom (the quick-use bar line). Each region fills
+    down to the next label, or to `bottom` if nothing is below it.
+    Returns ([{label, type, rect:(x0,y0,x1,y1)}], panels)."""
+    pans = panels(gray, headers)
+    # typical header line height drives all relative tolerances
+    lh = int(np.median([h for (_, _, _, _, h) in headers])) if headers else 14
+    row_tol = 3 * lh          # "same row" if header tops are within this
+    xband = 4 * lh            # "below me" if header x is within this band
+    margin = lh               # small gap kept between adjacent containers
+
+    out = []
+    for name, hx, hy, hw, hh in headers:
+        px0, px1 = _panel_of(hx, pans)
+        rights = [x2 for (n2, x2, y2, w2, h2) in headers
+                  if hx + margin < x2 < px1 and abs(y2 - hy) < row_tol]
+        belows = [y2 for (n2, x2, y2, w2, h2) in headers
+                  if y2 > hy + 2 * lh and abs(x2 - hx) < xband]
+        x0 = max(px0, hx - margin)
+        x1 = (min(rights) - margin) if rights else px1 - margin // 2
+        y0 = hy - margin // 2
+        y1 = (min(belows) - margin) if belows else bottom - margin // 2
+        kind = "GRID" if name in GRID_NAMES else "SLOT"
+        out.append({"label": name, "type": kind, "rect": (x0, y0, x1, y1)})
+    return out, pans
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -222,6 +270,8 @@ def main():
     H, W, _ = rgb.shape
     font = _font(max(16, W // 90))
 
+    gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+
     # ---- OCR ----
     lines = read_lines(img)
     containers = find_containers(lines)
@@ -240,15 +290,22 @@ def main():
     s1.save(os.path.join(args.outdir, "1_ocr_containers.png"))
 
     # ---- 2_subdivision.png ----
-    regions = subdivide(containers, W, H)
+    qy = quick_use_y(lines, H)
+    print(f"quick-use bar at y={qy} (working bottom)")
+    regions, pans = subdivide(containers, W, qy, gray)
     s2 = img.copy()
     d2 = ImageDraw.Draw(s2)
+    for (px0, px1) in pans:                             # panel dividers (magenta)
+        d2.line([px1 - 1, 0, px1 - 1, H], fill=(255, 0, 255), width=2)
+    d2.line([0, qy, W, qy], fill=(255, 0, 255), width=2)  # quick-use cutoff
+    cols = {"SLOT": (0, 220, 0), "GRID": (255, 150, 0)}
     for r in regions:
         x0, y0, x1, y1 = r["rect"]
-        d2.rectangle([x0, y0, x1, y1], outline=(255, 180, 0), width=3)
-        d2.text((x0 + 4, y0 + 4), r["label"], fill=(255, 180, 0), font=font)
+        d2.rectangle([x0, y0, x1, y1], outline=cols[r["type"]], width=3)
+        d2.text((x0 + 4, y0 + 4), r["label"], fill=(0, 255, 255), font=font)
     s2.save(os.path.join(args.outdir, "2_subdivision.png"))
-    print(f"subdivision: {len(regions)} container regions")
+    print(f"subdivision: {len(regions)} regions in {len(pans)} panels "
+          f"(green=slot, orange=grid, magenta=panel divider)")
 
     # ---- 3_bg_mask.png + 3_masked.png ----
     mask = np.zeros((H, W), dtype=np.uint8)
@@ -263,7 +320,7 @@ def main():
     Image.fromarray(mask, "L").save(os.path.join(args.outdir, "3_bg_mask.png"))
 
     masked = rgb.copy()
-    masked[mask == 0] = 0                               # background -> black
+    masked[mask == 0] = (255, 0, 255)                   # removed background -> bright pink
     Image.fromarray(masked).save(os.path.join(args.outdir, "3_masked.png"))
 
     print(f"foreground covers {100.0 * (mask > 0).mean():.1f}% of the image")
