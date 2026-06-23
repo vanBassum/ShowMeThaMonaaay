@@ -1,0 +1,242 @@
+{
+ "image": {
+  "width": 2560,
+  "height": 1440
+ },
+ "items": [
+  {
+   "name": "ComTac II",
+   "icon": "ComTac II",
+   "score": 0.939,
+   "x": 107,
+   "y": 223,
+   "w": 135,
+   "h": 162
+  },
+  {
+   "name": "ULACH",
+   "icon": "ULACH",
+   "score": 0.936,
+   "x": 379,
+   "y": 246,
+   "w": 119,
+   "h": 125
+  },
+  {
+   "name": "Evasion Armband",
+   "icon": "Armband",
+   "score": 0.884,
+   "x": 152,
+   "y": 342,
+   "w": 104,
+   "h": 65
+  },
+  {
+   "name": "Dogtag",
+   "icon": "Dogtag",
+   "score": 0.862,
+   "x": 121,
+   "y": 551,
+   "w": 94,
+   "h": 62
+  },
+  {
+   "name": "X-17 Rifle",
+   "icon": "PU 3.5x",
+   "score": 0.861,
+   "x": 333,
+   "y": 560,
+   "w": 170,
+   "h": 109
+  },
+  {
+   "name": "Red Rebel",
+   "icon": "RedRebel",
+   "score": 0.875,
+   "x": 426,
+   "y": 910,
+   "w": 77,
+   "h": 103
+  },
+  {
+   "name": "AVS Rig",
+   "icon": "AVS",
+   "score": 0.945,
+   "x": 899,
+   "y": 228,
+   "w": 123,
+   "h": 158
+  },
+  {
+   "name": "L7AWM Mag 1",
+   "icon": "L7AWM",
+   "score": 0.948,
+   "x": 1071,
+   "y": 249,
+   "w": 63,
+   "h": 114
+  },
+  {
+   "name": "L7AWM Mag 2",
+   "icon": "L7AWM",
+   "score": 0.952,
+   "x": 1174,
+   "y": 272,
+   "w": 57,
+   "h": 103
+  },
+  {
+   "name": "L7AWM Mag 3",
+   "icon": "L7AWM",
+   "score": 0.949,
+   "x": 1427,
+   "y": 289,
+   "w": 57,
+   "h": 103
+  },
+  {
+   "name": "SI 6",
+   "icon": "SI 4\"",
+   "score": 0.927,
+   "x": 1053,
+   "y": 407,
+   "w": 57,
+   "h": 57
+  },
+  {
+   "name": "BCP FMJ",
+   "icon": "BCP FMJ",
+   "score": 0.93,
+   "x": 876,
+   "y": 744,
+   "w": 71,
+   "h": 57
+  },
+  {
+   "name": "F-1 Grenade 1",
+   "icon": "F-1",
+   "score": 0.871,
+   "x": 1165,
+   "y": 739,
+   "w": 57,
+   "h": 70
+  },
+  {
+   "name": "F-1 Grenade 2",
+   "icon": "F-1",
+   "score": 0.861,
+   "x": 1215,
+   "y": 662,
+   "w": 47,
+   "h": 57
+  },
+  {
+   "name": "Paracord",
+   "icon": "Paracord",
+   "score": 0.885,
+   "x": 1366,
+   "y": 741,
+   "w": 68,
+   "h": 57
+  },
+  {
+   "name": "Surv12",
+   "icon": "Surv12",
+   "score": 0.898,
+   "x": 1531,
+   "y": 653,
+   "w": 68,
+   "h": 57
+  },
+  {
+   "name": "T20 Backpack",
+   "icon": "T20",
+   "score": 0.954,
+   "x": 877,
+   "y": 870,
+   "w": 152,
+   "h": 168
+  },
+  {
+   "name": "Defender-2 Armor",
+   "icon": "Defender-2",
+   "score": 0.97,
+   "x": 1057,
+   "y": 882,
+   "w": 237,
+   "h": 309
+  },
+  {
+   "name": "MP-153",
+   "icon": "MP-18",
+   "score": 0.792,
+   "x": 1849,
+   "y": 245,
+   "w": 243,
+   "h": 110
+  },
+  {
+   "name": "A-2607 Knife",
+   "icon": "Knife",
+   "score": 0.798,
+   "x": 2388,
+   "y": 567,
+   "w": 85,
+   "h": 103
+  },
+  {
+   "name": "Scav Vest",
+   "icon": "Scav Vest",
+   "score": 0.961,
+   "x": 1788,
+   "y": 655,
+   "w": 118,
+   "h": 147
+  },
+  {
+   "name": "7mm Ammo Stack 1",
+   "icon": "Ammo",
+   "score": 0.906,
+   "x": 2035,
+   "y": 703,
+   "w": 57,
+   "h": 57
+  },
+  {
+   "name": "7mm Ammo Stack 2",
+   "icon": "Ammo",
+   "score": 0.906,
+   "x": 2035,
+   "y": 703,
+   "w": 57,
+   "h": 57
+  },
+  {
+   "name": "Quickbar F-1",
+   "icon": "R37.F",
+   "score": 0.914,
+   "x": 1119,
+   "y": 1319,
+   "w": 38,
+   "h": 47
+  },
+  {
+   "name": "Quickbar Red Rebel",
+   "icon": "Red",
+   "score": 0.845,
+   "x": 1213,
+   "y": 1268,
+   "w": 42,
+   "h": 52
+  },
+  {
+   "name": "Quickbar X-17",
+   "icon": "R37.X",
+   "score": 0.914,
+   "x": 1330,
+   "y": 1319,
+   "w": 38,
+   "h": 47
+  }
+ ]
+}

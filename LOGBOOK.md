@@ -5,6 +5,33 @@ See `CLAUDE.md` for the format rule.
 
 ---
 
+## 2026-06-23 — Template matching: open-set ID fails, known-icon LOCALIZE works (`mask-detect-frontend`)
+
+Tried template matching two ways using the icons we already own.
+
+**(a) Open-set identify — FAILED.** `template_match.py`: per loose crop, masked NCC
+vs all ~5044 icons. Top-1 wrong on ~all 26 GT boxes, scores 0.15–0.59. Same
+brittleness as pHash — full-box NCC needs framing/scale we don't have.
+
+**(b) Known-icon localize — WORKS, and this is the useful route.** Key idea (user's):
+ChatGPT is good at *what* is on screen, bad at *where*. So feed the KNOWN icon and
+slide it (multi-scale, alpha-masked `matchTemplate`) in a window around the rough
+hint → the correlation PEAK is the precise box. `auto_localize.py`: scores jumped to
+0.82–0.97 and boxes snap onto items much better than ChatGPT's hints. This
+**auto-generates the GT test set**: ChatGPT names + template-refined boxes.
+
+**Two gaps to manage:**
+- *Name resolution* (ChatGPT display name → tarkov.dev item) was the bottleneck;
+  matching against name+shortName (ratio+token-overlap) fixed most (~20/26 correct).
+  Stragglers: X-17, MP-153 variant, tiny Quickbar items.
+- `TM_CCORR_NORMED` score isn't discriminative — can't auto-flag a wrong resolution.
+
+**Workflow:** auto_localize → `*.refined.json` → load in `index.html`, eyeball, fix
+the few wrong ones → final GT. Mostly automated. Better long-term ID route is still
+embedding retrieval (DINOv2). **Status: working pipeline for GT automation.**
+
+---
+
 ## 2026-06-23 — Retrain detector on black-bg/non-overlap data + VRAM fix (`mask-detect-frontend`)
 
 **What.** Regenerated dataset `--black-frac 1.0` (3000/300) and retrained yolov8s,
