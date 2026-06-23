@@ -22,6 +22,8 @@
   #panel h3 { margin:4px 0; font-size:13px; color:var(--muted); font-weight:600; }
   .cand, .res { display:flex; align-items:center; gap:8px; padding:4px; border:1px solid var(--line); border-radius:6px; cursor:pointer; background:#11141a; }
   .cand:hover, .res:hover { border-color:var(--accent); }
+  .cand.active, .res.active { border-color:var(--cor); background:#13212c; box-shadow:inset 3px 0 0 var(--cor); }
+  .cand.active b::after, .res.active b::after { content:' ✓ current'; color:var(--cor); font-weight:400; font-size:11px; }
   .cand img, .res img, td img { width:40px; height:40px; object-fit:contain; background:#000; border-radius:4px; }
   .grid { display:flex; flex-direction:column; gap:4px; }
   table { width:100%; border-collapse:collapse; }
@@ -116,7 +118,7 @@ function selPanel(){
   fl.onclick=()=>{ it.status = it.status==='fluke' ? 'corrected' : 'fluke'; draw(); renderList(); updateTotals(); selPanel(); };
   p.appendChild(fl);
   const ch=document.createElement('div'); ch.innerHTML='<h3>suggestions</h3>'; const cg=document.createElement('div'); cg.className='grid';
-  it.candidates.forEach(c=>{ const d=document.createElement('div'); d.className='cand';
+  it.candidates.forEach(c=>{ const d=document.createElement('div'); d.className='cand'+(c.id===it.id?' active':'');
     d.innerHTML=`<img src="/api/icon?id=${c.id}"><div><b>${c.short}</b> <small>${c.prob}</small><br><small>${c.name}</small></div>`;
     d.onclick=()=>assign(it,c); cg.appendChild(d); });
   ch.appendChild(cg); p.appendChild(ch);
@@ -125,7 +127,7 @@ function selPanel(){
   const sr=document.createElement('div'); sr.className='grid'; sr.style.marginTop='6px';
   let t; si.oninput=()=>{ clearTimeout(t); t=setTimeout(async()=>{
     const res=await api('/api/search?q='+encodeURIComponent(si.value)); sr.innerHTML='';
-    res.forEach(r=>{ const d=document.createElement('div'); d.className='res';
+    res.forEach(r=>{ const d=document.createElement('div'); d.className='res'+(r.id===it.id?' active':'');
       d.innerHTML=`<img src="/api/icon?id=${r.id}"><div><b>${r.short}</b><br><small>${r.name} · ${r.price.toLocaleString()}₽</small></div>`;
       d.onclick=()=>assign(it,r); sr.appendChild(d); }); },180); };
   sh.appendChild(si); sh.appendChild(sr); p.appendChild(sh); si.focus();
@@ -173,7 +175,7 @@ document.addEventListener('keyup',e=>{ if(e.code==='Space'){ space=false; cv.sty
 $('load').onclick=()=>loadAll(false);
 $('rescan').onclick=()=>loadAll(true);
 $('vScreen').onclick=viewScreen; $('vList').onclick=viewList;
-$('save').onclick=async()=>{ const r=await fetch('/api/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); const j=await r.json(); $('save').textContent=`Saved (${j.corrected} fixed)`; setTimeout(()=>$('save').textContent='Save',1500); };
+$('save').onclick=async()=>{ const r=await fetch('/api/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); const j=await r.json(); $('save').textContent=`Saved · gallery ${j.gallery_total}`; setTimeout(()=>$('save').textContent='Save',2000); };
 
 loadAll(false);
 </script>

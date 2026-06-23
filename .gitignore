@@ -9,6 +9,9 @@ test screenshot*.png
 # backend scan cache + saved corrections
 sessions/
 
+# accumulated real-crop gallery (game-sourced training data)
+gallery/
+
 # YOLO: training runs + downloaded base weights (data/yolo dataset covered by data/)
 runs/
 *.pt

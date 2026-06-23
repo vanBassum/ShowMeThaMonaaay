@@ -16,6 +16,7 @@ Run:  python server.py     then open http://127.0.0.1:5000
 import difflib
 import json
 import os
+import time
 
 import numpy as np
 import cv2
@@ -31,7 +32,11 @@ ROOT = os.path.dirname(__file__)
 DATA = os.path.join(ROOT, "data")
 ICONS = os.path.join(DATA, "icons")
 SESS = os.path.join(ROOT, "sessions")
+GALLERY = os.path.join(ROOT, "gallery")
+GCROPS = os.path.join(GALLERY, "crops")
+GLABELS = os.path.join(GALLERY, "labels.json")
 os.makedirs(SESS, exist_ok=True)
+os.makedirs(GCROPS, exist_ok=True)
 
 app = Flask(__name__, static_folder=None)
 _ITEMS = None
@@ -163,14 +168,47 @@ def api_search():
                     for _, it in scored[:25]])
 
 
+def bank_gallery(data):
+    """Bank each non-fluke reviewed box as a real (crop, item_id) pair into the
+    gallery. Keyed by (image, box) so re-saving a session updates labels instead
+    of duplicating; fluke/removed boxes are dropped. This is the game-sourced
+    training data the flywheel accumulates."""
+    img_name = data.get("image", {}).get("name", "")
+    path = os.path.join(ROOT, img_name)
+    if not os.path.exists(path):
+        return 0, 0
+    img = Image.open(path).convert("RGB")
+    stem = os.path.splitext(os.path.basename(img_name))[0].replace(" ", "_")
+    labels = json.load(open(GLABELS, encoding="utf-8")) if os.path.exists(GLABELS) else {}
+    banked = 0
+    for it in data.get("items", []):
+        x0, y0, x1, y1 = it["box"]
+        key = f"{stem}__{x0}_{y0}_{x1}_{y1}"
+        if it.get("status") == "fluke":
+            labels.pop(key, None)
+            continue
+        img.crop((x0, y0, x1, y1)).save(os.path.join(GCROPS, key + ".png"))
+        labels[key] = {"crop": key + ".png", "item_id": it["id"],
+                       "short": it.get("short", ""), "name": it.get("name", ""),
+                       "status": it.get("status"), "src": it.get("src"),
+                       "corrected": bool(it.get("corrected")), "prob": it.get("prob"),
+                       "ocr": it.get("ocr", ""), "image": img_name, "box": it["box"],
+                       "ts": int(time.time())}
+        banked += 1
+    json.dump(labels, open(GLABELS, "w"), indent=1)
+    return banked, len(labels)
+
+
 @app.route("/api/save", methods=["POST"])
 def api_save():
     data = request.get_json(force=True)
     name = data.get("image", {}).get("name", "session")
     p = os.path.join(SESS, name.replace("/", "_").replace(".", "_") + ".corrected.json")
     json.dump(data, open(p, "w"), indent=1)
+    banked, total = bank_gallery(data)
     return jsonify({"ok": True, "saved": os.path.basename(p),
-                    "corrected": sum(1 for it in data.get("items", []) if it.get("corrected"))})
+                    "corrected": sum(1 for it in data.get("items", []) if it.get("corrected")),
+                    "banked": banked, "gallery_total": total})
 
 
 if __name__ == "__main__":
