@@ -85,8 +85,10 @@ function draw(){
     const on=i===sel;
     // cell lines
     ctx.strokeStyle = on?'rgba(72,192,255,.55)':'rgba(57,217,138,.4)'; ctx.lineWidth=1/scale;
-    for(let c=1;c<g.cols;c++){ const x=g.x+g.w*c/g.cols; ctx.beginPath(); ctx.moveTo(x,g.y); ctx.lineTo(x,g.y+g.h); ctx.stroke(); }
-    for(let r=1;r<g.rows;r++){ const y=g.y+g.h*r/g.rows; ctx.beginPath(); ctx.moveTo(g.x,y); ctx.lineTo(g.x+g.w,y); ctx.stroke(); }
+    // snap each boundary to a whole pixel (cumulative) so it tracks the game's integer
+    // grid — the fractional cell pitch then adds a pixel every few cells, like the game
+    for(let c=1;c<g.cols;c++){ const x=Math.round(g.x+g.w*c/g.cols)+0.5/scale; ctx.beginPath(); ctx.moveTo(x,g.y); ctx.lineTo(x,g.y+g.h); ctx.stroke(); }
+    for(let r=1;r<g.rows;r++){ const y=Math.round(g.y+g.h*r/g.rows)+0.5/scale; ctx.beginPath(); ctx.moveTo(g.x,y); ctx.lineTo(g.x+g.w,y); ctx.stroke(); }
     // outline
     ctx.strokeStyle = on?'#48c0ff':'#39d98a'; ctx.lineWidth=(on?2.5:1.5)/scale; ctx.strokeRect(g.x,g.y,g.w,g.h);
     ctx.fillStyle = on?'#48c0ff':'#39d98a'; ctx.font=`${12/scale}px system-ui`; ctx.textBaseline='bottom';

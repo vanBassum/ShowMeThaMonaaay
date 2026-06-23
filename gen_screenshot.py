@@ -48,7 +48,9 @@ def fits(occ, r, c, fh, fw, rows, cols):
 def fill_grid(g, pool, rng, fill):
     """Greedy footprint-aware packing. Returns [(id, x, y, w, h)] in image px."""
     cols, rows = int(g["cols"]), int(g["rows"])
-    cw, ch = g["w"] / cols, g["h"] / rows
+    # cumulative-rounded boundaries -> integer pixel cells matching the game grid
+    xs = [round(g["x"] + i * g["w"] / cols) for i in range(cols + 1)]
+    ys = [round(g["y"] + j * g["h"] / rows) for j in range(rows + 1)]
     occ = [[False] * cols for _ in range(rows)]
     placed = []
     for r in range(rows):
@@ -63,8 +65,7 @@ def fill_grid(g, pool, rng, fill):
                     for dr in range(fh):
                         for dc in range(fw):
                             occ[r + dr][c + dc] = True
-                    x, y = g["x"] + c * cw, g["y"] + r * ch
-                    placed.append((iid, x, y, fw * cw, fh * ch))
+                    placed.append((iid, xs[c], ys[r], xs[c + fw] - xs[c], ys[r + fh] - ys[r]))
                     break
     return placed
 
