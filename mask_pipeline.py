@@ -141,6 +141,40 @@ def find_containers(lines):
 GRID_NAMES = {"TACTICAL RIG", "BACKPACK", "POCKETS", "SPECIAL SLOTS", "STASH",
               "LOOT", "SECURED CONTAINER"}
 
+# Explicit bounding rules for the fixed Tarkov layout. Each rule bounds a
+# container's EDGE at the nearest REF header in that direction, WITHIN THE SAME
+# PANEL. Resolution-independent (references detected header positions, not
+# pixels). If no ref header exists in that direction the geometric default is
+# kept — so one rule covers both screens (e.g. right-panel SHEATH has a RIG
+# below it and stops there; left-doll SHEATH has none and falls back).
+#   (container, edge, reference-container)   edge in {"right","bottom","left","top"}
+BOUND_RULES = [
+    ("DOGTAG",        "right",  "BODY ARMOR"),    # stop at the X where body armor starts
+    ("BODY ARMOR",    "bottom", "ON SLING"),      # armor ends where the weapon begins
+    ("SPECIAL SLOTS", "bottom", "BACKPACK"),      # stop at the Y where backpack starts
+    ("SHEATH",        "bottom", "TACTICAL RIG"),  # stop at the Y where rig starts (right panel)
+]
+
+
+def _nearest_ref(edge, hx, hy, ref, headers, px0, px1):
+    """Position of the nearest header named `ref` from (hx,hy) in `edge`'s
+    direction, restricted to this panel. Returns the bounding coordinate or None."""
+    cands = [(x2, y2) for (n2, x2, y2, w2, h2) in headers
+             if n2 == ref and px0 <= x2 < px1]
+    if edge == "right":
+        c = [p for p in cands if p[0] > hx]
+        return min(c, key=lambda p: p[0])[0] if c else None
+    if edge == "left":
+        c = [p for p in cands if p[0] < hx]
+        return max(c, key=lambda p: p[0])[0] if c else None
+    if edge == "bottom":
+        c = [p for p in cands if p[1] > hy]
+        return min(c, key=lambda p: p[1])[1] if c else None
+    if edge == "top":
+        c = [p for p in cands if p[1] < hy]
+        return max(c, key=lambda p: p[1])[1] if c else None
+    return None
+
 
 def panels(gray, headers):
     """Split the screen into vertical panels. The middle|right divider is a
@@ -193,6 +227,23 @@ def subdivide(headers, W, bottom, gray):
         x1 = (min(rights) - margin) if rights else px1 - margin // 2
         y0 = hy - margin // 2
         y1 = (min(belows) - margin) if belows else bottom - margin // 2
+
+        # explicit layout rules override the geometric edge when a ref exists
+        for (slot, edge, ref) in BOUND_RULES:
+            if slot != name:
+                continue
+            v = _nearest_ref(edge, hx, hy, ref, headers, px0, px1)
+            if v is None:
+                continue
+            if edge == "right" and v - margin > x0 + margin:
+                x1 = v - margin
+            elif edge == "left" and v + margin < x1 - margin:
+                x0 = v + margin
+            elif edge == "bottom" and v - margin > y0 + margin:
+                y1 = v - margin
+            elif edge == "top" and v + margin < y1 - margin:
+                y0 = v + margin
+
         kind = "GRID" if name in GRID_NAMES else "SLOT"
         out.append({"label": name, "type": kind, "rect": (x0, y0, x1, y1)})
     return out, pans

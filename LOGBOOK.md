@@ -5,6 +5,26 @@ See `CLAUDE.md` for the format rule.
 
 ---
 
+## 2026-06-23 — Relative bounding ruleset for subdivision (`mask-detect-frontend`)
+
+**Problem.** Pure geometric neighbour rules can't size the fixed equipment-doll
+slots: e.g. BODY ARMOR's bottom should stop at ON SLING (below it), but DOGTAG
+(beside it, nearer in y) wrongly bounded it; SPECIAL SLOTS overran past BACKPACK.
+
+**Fix.** Added `BOUND_RULES` — an explicit, extensible table that bounds a
+container's edge at the *nearest neighbour of a named type in that direction,
+within the same panel*. Still resolution-independent (references detected header
+positions, not pixels). Key property: if no ref exists in that direction, it
+falls back to the geometric default, so **one rule covers both screens** — e.g.
+`SHEATH.bottom = TACTICAL RIG below` stops the right-panel sheath at the rig, and
+the left-doll sheath (no rig below) just falls back. Rules added so far: DOGTAG,
+BODY ARMOR, SPECIAL SLOTS, SHEATH.
+
+**Result: works.** All four corrections verified on test screenshot 1. More rules
+to add (e.g. left-doll SHEATH bottom). **Status: working, iterating.**
+
+---
+
 ## 2026-06-23 — Classical mask front-end for detection (`mask-detect-frontend`)
 
 **Context.** Re-examined the whole approach. Detection (grid-free YOLO) is the
