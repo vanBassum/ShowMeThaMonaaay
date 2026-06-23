@@ -75,7 +75,8 @@ async function load(){
   status(`${grids.length} grid(s)`);
 }
 function resize(){ cv.width=Math.round(W*scale); cv.height=Math.round(H*scale); }
-function evToImg(e){ const r=cv.getBoundingClientRect(); return {x:(e.clientX-r.left)/scale,y:(e.clientY-r.top)/scale}; }
+// snap to whole real-screenshot pixels — at high zoom each integer is reachable, so grids land exactly on pixel boundaries
+function evToImg(e){ const r=cv.getBoundingClientRect(); return {x:Math.round((e.clientX-r.left)/scale),y:Math.round((e.clientY-r.top)/scale)}; }
 
 function draw(){
   if(!W) return;
@@ -135,11 +136,11 @@ cv.addEventListener('mousedown',e=>{
 window.addEventListener('mousemove',e=>{
   if(pan){ stage.scrollLeft=pan.sl-(e.clientX-pan.x); stage.scrollTop=pan.st-(e.clientY-pan.y); return; }
   if(!drag||sel<0) return; const g=grids[sel], p=evToImg(e);
-  if(drag.mode==='move'){ g.x=p.x-drag.ox; g.y=p.y-drag.oy; }
+  if(drag.mode==='move'){ g.x=Math.round(p.x-drag.ox); g.y=Math.round(p.y-drag.oy); }
   else { // resize: keep opposite corner fixed
     const cs=corners(g), opp=cs[3-drag.corner];
-    const x0=Math.min(p.x,opp[0]), y0=Math.min(p.y,opp[1]);
-    g.x=x0; g.y=y0; g.w=Math.max(8,Math.abs(p.x-opp[0])); g.h=Math.max(8,Math.abs(p.y-opp[1]));
+    g.x=Math.round(Math.min(p.x,opp[0])); g.y=Math.round(Math.min(p.y,opp[1]));
+    g.w=Math.max(8,Math.round(Math.abs(p.x-opp[0]))); g.h=Math.max(8,Math.round(Math.abs(p.y-opp[1])));
   }
   draw(); cellInfo();
 });
