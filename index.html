@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Grid-snap box labeler</title>
+<style>
+  :root { --bg:#15171a; --panel:#1e2126; --line:#2c313a; --accent:#39d98a; --txt:#d6dae0; --muted:#8b93a0; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font:13px/1.4 system-ui, sans-serif; }
+  header { background:var(--panel); border-bottom:1px solid var(--line); padding:8px 12px;
+           display:flex; flex-wrap:wrap; gap:10px 16px; align-items:center; position:sticky; top:0; z-index:5; }
+  .grp { display:flex; align-items:center; gap:6px; }
+  .grp label { color:var(--muted); }
+  input[type=text]{ width:170px; }
+  input[type=number]{ width:64px; }
+  input, button { background:#11141a; color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:5px 8px; font:inherit; }
+  button { cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); color:#07120c; border-color:var(--accent); font-weight:600; }
+  .pill { background:#11141a; border:1px solid var(--line); border-radius:999px; padding:3px 10px; color:var(--muted); }
+  #stage { padding:12px; overflow:auto; max-height:calc(100vh - 230px); }
+  canvas { background:#000; image-rendering:auto; box-shadow:0 0 0 1px var(--line); }
+  #hint { padding:8px 12px; color:var(--muted); border-top:1px solid var(--line); background:var(--panel); }
+  #hint b { color:var(--txt); }
+  footer { display:flex; gap:12px; align-items:flex-start; padding:10px 12px; border-top:1px solid var(--line); background:var(--panel); }
+  textarea { flex:1; height:90px; background:#11141a; color:var(--txt); border:1px solid var(--line); border-radius:6px;
+             font:12px ui-monospace, monospace; padding:8px; resize:vertical; }
+  kbd { background:#11141a; border:1px solid var(--line); border-bottom-width:2px; border-radius:4px; padding:0 5px; font-size:11px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="grp">
+    <label>image</label>
+    <input id="imgPath" type="text" value="test screenshot 1.png" />
+    <button id="loadImg">Load</button>
+  </div>
+  <div class="grp">
+    <label>cell&nbsp;px</label>
+    <input id="pitch" type="number" value="84" min="8" max="400" step="1" />
+  </div>
+  <div class="grp">
+    <label>origin</label>
+    <input id="ox" type="number" value="0" step="1" />
+    <input id="oy" type="number" value="0" step="1" />
+    <button id="setOrigin" title="Then click a cell's top-left corner">Set origin (click)</button>
+  </div>
+  <div class="grp">
+    <label>zoom</label>
+    <input id="zoom" type="range" min="0.25" max="1.5" step="0.05" value="0.6" />
+    <span id="zoomVal" class="pill">60%</span>
+  </div>
+  <label class="grp"><input id="snap" type="checkbox" checked /> snap to grid</label>
+  <label class="grp"><input id="showGrid" type="checkbox" checked /> show grid</label>
+  <div class="grp" style="margin-left:auto">
+    <span id="count" class="pill">0 boxes</span>
+    <button id="clear">Clear</button>
+    <button id="loadLabelsBtn">Load .txt</button>
+    <input id="loadLabels" type="file" accept=".txt" style="display:none" />
+    <button id="export" class="primary">Export YOLO .txt</button>
+  </div>
+</header>
+
+<div id="stage"><canvas id="cv"></canvas></div>
+
+<div id="hint">
+  <b>Drag</b> across cells to add a box (snaps to grid) · <b>Right-click</b> a box to delete ·
+  <b>Set origin</b> then click a cell corner to align the grid · arrow <kbd>←↑↓→</kbd> nudge origin 1px ·
+  <kbd>g</kbd> toggle grid · <kbd>Esc</kbd> cancel drag
+</div>
+
+<footer>
+  <textarea id="yolo" readonly placeholder="YOLO labels (class cx cy w h, normalized) appear here…"></textarea>
+  <button id="copy">Copy</button>
+</footer>
+
+<script>
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const img = new Image();
+let W = 0, H = 0;                 // natural image size (px)
+let scale = 0.6;                  // display scale
+let boxes = [];                   // {x0,y0,x1,y1} in image px
+let drag = null;                  // {sx,sy,cx,cy} during a drag
+let hover = null;                 // current mouse pos (image px)
+let originMode = false;
+
+const $ = id => document.getElementById(id);
+const pitch = () => Math.max(1, +$('pitch').value || 1);
+const ox = () => +$('ox').value || 0;
+const oy = () => +$('oy').value || 0;
+
+function loadImage() {
+  const name = $('imgPath').value.trim();
+  img.onload = () => { W = img.naturalWidth; H = img.naturalHeight; resize(); draw(); };
+  img.onerror = () => alert('Could not load "' + name + '". Make sure it sits next to index.html.');
+  img.src = encodeURI(name) + '?t=' + Date.now();   // cache-bust on reload
+}
+
+function resize() {
+  cv.width = Math.round(W * scale);
+  cv.height = Math.round(H * scale);
+}
+
+// snap an image-px coordinate to the nearest gridline
+function snap1(v, origin) {
+  if (!$('snap').checked) return Math.round(v);
+  return origin + Math.round((v - origin) / pitch()) * pitch();
+}
+function snapBox(x0, y0, x1, y1) {
+  let X0 = snap1(Math.min(x0, x1), ox()), X1 = snap1(Math.max(x0, x1), ox());
+  let Y0 = snap1(Math.min(y0, y1), oy()), Y1 = snap1(Math.max(y0, y1), oy());
+  if ($('snap').checked) {                 // ensure at least one full cell
+    if (X1 - X0 < pitch()) X1 = X0 + pitch();
+    if (Y1 - Y0 < pitch()) Y1 = Y0 + pitch();
+  }
+  X0 = Math.max(0, X0); Y0 = Math.max(0, Y0);
+  X1 = Math.min(W, X1); Y1 = Math.min(H, Y1);
+  return { x0:X0, y0:Y0, x1:X1, y1:Y1 };
+}
+
+function evToImg(e) {
+  const r = cv.getBoundingClientRect();
+  return { x:(e.clientX - r.left) / scale, y:(e.clientY - r.top) / scale };
+}
+
+function draw() {
+  if (!W) return;
+  ctx.setTransform(scale, 0, 0, scale, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  ctx.drawImage(img, 0, 0, W, H);
+
+  // grid
+  if ($('showGrid').checked) {
+    ctx.lineWidth = 1 / scale; ctx.strokeStyle = 'rgba(120,180,255,0.25)';
+    ctx.beginPath();
+    for (let x = ox() % pitch(); x <= W; x += pitch()) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+    for (let y = oy() % pitch(); y <= H; y += pitch()) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
+    ctx.stroke();
+  }
+
+  // hover cell
+  if (hover && !drag) {
+    const c = snapBox(hover.x, hover.y, hover.x, hover.y);
+    ctx.fillStyle = 'rgba(57,217,138,0.18)';
+    ctx.fillRect(c.x0, c.y0, Math.max(pitch(), c.x1 - c.x0), Math.max(pitch(), c.y1 - c.y0));
+  }
+
+  // committed boxes
+  ctx.lineWidth = 2 / scale;
+  ctx.font = `${12 / scale}px system-ui`;
+  for (const b of boxes) {
+    ctx.fillStyle = 'rgba(57,217,138,0.16)';
+    ctx.fillRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0);
+    ctx.strokeStyle = '#39d98a';
+    ctx.strokeRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0);
+    const cw = Math.max(1, Math.round((b.x1 - b.x0) / pitch()));
+    const ch = Math.max(1, Math.round((b.y1 - b.y0) / pitch()));
+    ctx.fillStyle = '#39d98a';
+    ctx.fillText(`${cw}×${ch}`, b.x0 + 3 / scale, b.y0 + 13 / scale);
+  }
+
+  // in-progress drag
+  if (drag) {
+    const b = snapBox(drag.sx, drag.sy, drag.cx, drag.cy);
+    ctx.fillStyle = 'rgba(255,210,0,0.20)';
+    ctx.fillRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0);
+    ctx.strokeStyle = '#ffd200';
+    ctx.strokeRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0);
+  }
+  updateOut();
+}
+
+function updateOut() {
+  $('count').textContent = boxes.length + ' boxes';
+  if (!W) return;
+  $('yolo').value = boxes.map(b => {
+    const cx = (b.x0 + b.x1) / 2 / W, cy = (b.y0 + b.y1) / 2 / H;
+    const bw = (b.x1 - b.x0) / W, bh = (b.y1 - b.y0) / H;
+    return `0 ${cx.toFixed(6)} ${cy.toFixed(6)} ${bw.toFixed(6)} ${bh.toFixed(6)}`;
+  }).join('\n');
+}
+
+function hit(p) {                          // topmost box under point p
+  for (let i = boxes.length - 1; i >= 0; i--) {
+    const b = boxes[i];
+    if (p.x >= b.x0 && p.x <= b.x1 && p.y >= b.y0 && p.y <= b.y1) return i;
+  }
+  return -1;
+}
+
+// ---- events ----
+cv.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  const p = evToImg(e);
+  if (originMode) {
+    $('ox').value = Math.round(p.x % pitch());
+    $('oy').value = Math.round(p.y % pitch());
+    originMode = false; cv.style.cursor = 'default'; draw(); return;
+  }
+  drag = { sx:p.x, sy:p.y, cx:p.x, cy:p.y };
+});
+cv.addEventListener('mousemove', e => {
+  hover = evToImg(e);
+  if (drag) { drag.cx = hover.x; drag.cy = hover.y; }
+  draw();
+});
+window.addEventListener('mouseup', e => {
+  if (e.button !== 0 || !drag) return;
+  const b = snapBox(drag.sx, drag.sy, drag.cx, drag.cy);
+  if (b.x1 - b.x0 > 2 && b.y1 - b.y0 > 2) boxes.push(b);
+  drag = null; draw();
+});
+cv.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  const i = hit(evToImg(e));
+  if (i >= 0) { boxes.splice(i, 1); draw(); }
+});
+cv.addEventListener('mouseleave', () => { hover = null; draw(); });
+
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'Escape') { drag = null; draw(); }
+  else if (e.key === 'g') { $('showGrid').checked = !$('showGrid').checked; draw(); }
+  else if (e.key === 'ArrowLeft')  { $('ox').value = ox() - 1; draw(); e.preventDefault(); }
+  else if (e.key === 'ArrowRight') { $('ox').value = ox() + 1; draw(); e.preventDefault(); }
+  else if (e.key === 'ArrowUp')    { $('oy').value = oy() - 1; draw(); e.preventDefault(); }
+  else if (e.key === 'ArrowDown')  { $('oy').value = oy() + 1; draw(); e.preventDefault(); }
+});
+
+$('loadImg').onclick = loadImage;
+$('pitch').oninput = $('ox').oninput = $('oy').oninput = draw;
+$('snap').onchange = $('showGrid').onchange = draw;
+$('setOrigin').onclick = () => { originMode = true; cv.style.cursor = 'crosshair'; };
+$('zoom').oninput = e => { scale = +e.target.value; $('zoomVal').textContent = Math.round(scale*100)+'%'; resize(); draw(); };
+$('clear').onclick = () => { if (confirm('Remove all boxes?')) { boxes = []; draw(); } };
+$('export').onclick = () => {
+  const name = $('imgPath').value.trim().replace(/\.[^.]+$/, '') + '.txt';
+  const blob = new Blob([$('yolo').value + '\n'], { type:'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
+};
+$('copy').onclick = () => { $('yolo').select(); document.execCommand('copy'); };
+$('loadLabelsBtn').onclick = () => $('loadLabels').click();
+$('loadLabels').onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    boxes = r.result.split('\n').map(l => l.trim().split(/\s+/)).filter(p => p.length === 5)
+      .map(([_, cx, cy, bw, bh]) => ({
+        x0:(+cx - +bw/2)*W, y0:(+cy - +bh/2)*H, x1:(+cx + +bw/2)*W, y1:(+cy + +bh/2)*H }));
+    draw();
+  };
+  r.readAsText(f);
+};
+
+loadImage();
+</script>
+</body>
+</html>
