@@ -33,6 +33,7 @@
   <span style="width:1px;height:20px;background:var(--line)"></span>
   <button id="add">+ Add grid</button>
   <button id="dup">Duplicate</button>
+  <label class="pill" style="display:flex;gap:6px;align-items:center">cell px <input id="cell" type="number" step="0.05" value="84.3" style="width:74px"></label>
   <button id="save" class="primary">Save</button>
   <span style="margin-left:auto"></span>
   <span id="status" class="pill">—</span>
@@ -46,7 +47,9 @@
 <script>
 const $ = id => document.getElementById(id);
 const cv = $('cv'), ctx = cv.getContext('2d'), stage = $('stage'), imgEl = new Image();
-let W=0,H=0, scale=0.6, grids=[], sel=-1, curSession=null;
+let W=0,H=0, scale=0.6, grids=[], sel=-1, curSession=null, cell=84.3;
+// one true screen pitch -> square cells; keeps w,h = cols/rows * cell so nothing drifts
+function applyCell(){ grids.forEach(g=>{ g.w=g.cols*cell; g.h=g.rows*cell; }); }
 let drag=null, pan=null, space=false;
 const HANDLE=8;   // corner handle hit radius (screen px)
 
@@ -71,6 +74,11 @@ async function load(){
   await new Promise(r=>{imgEl.onload=r;imgEl.onerror=r;});
   W=imgEl.naturalWidth; H=imgEl.naturalHeight;
   grids = await api('/api/grids?session='+encodeURIComponent(sid));
+  // adopt a saved pitch if present, else estimate from the grid with the most columns
+  const withCell = grids.find(g=>g.cell);
+  if(withCell) cell=withCell.cell;
+  else if(grids.length){ const best=grids.slice().sort((a,b)=>b.cols-a.cols)[0]; cell=best.w/best.cols; }
+  grids.forEach(g=>g.cell=cell); $('cell').value=cell.toFixed(2); applyCell();
   sel = grids.length?0:-1; resize(); draw(); renderList(); renderProps(); markThumb(sid);
   status(`${grids.length} grid(s)`);
 }
@@ -115,8 +123,8 @@ function renderProps(){
   const mk=(lab,val,on)=>{ const l=document.createElement('label'); l.className='f'; l.innerHTML=`${lab}`;
     const inp=document.createElement('input'); inp.value=val; on(inp); l.appendChild(inp); return l; };
   const name=mk('name',g.name||'',inp=>{inp.type='text'; inp.oninput=()=>{g.name=inp.value; renderList(); draw();};});
-  const cols=mk('cols',g.cols,inp=>{inp.type='number'; inp.min=1; inp.oninput=()=>{g.cols=Math.max(1,+inp.value||1); draw(); cellInfo();};});
-  const rows=mk('rows',g.rows,inp=>{inp.type='number'; inp.min=1; inp.oninput=()=>{g.rows=Math.max(1,+inp.value||1); draw(); cellInfo();};});
+  const cols=mk('cols',g.cols,inp=>{inp.type='number'; inp.min=1; inp.oninput=()=>{g.cols=Math.max(1,+inp.value||1); g.w=g.cols*cell; draw(); cellInfo();};});
+  const rows=mk('rows',g.rows,inp=>{inp.type='number'; inp.min=1; inp.oninput=()=>{g.rows=Math.max(1,+inp.value||1); g.h=g.rows*cell; draw(); cellInfo();};});
   const r1=document.createElement('div'); r1.className='row'; r1.append(cols,rows);
   const info=document.createElement('small'); info.id='cellinfo';
   const del=document.createElement('button'); del.textContent='Delete grid'; del.onclick=()=>{ grids.splice(sel,1); sel=grids.length?0:-1; draw(); renderList(); renderProps(); };
@@ -142,10 +150,12 @@ window.addEventListener('mousemove',e=>{
   if(pan){ stage.scrollLeft=pan.sl-(e.clientX-pan.x); stage.scrollTop=pan.st-(e.clientY-pan.y); return; }
   if(!drag||sel<0) return; const g=grids[sel], p=evToImg(e);
   if(drag.mode==='move'){ g.x=Math.round(p.x-drag.ox); g.y=Math.round(p.y-drag.oy); }
-  else { // resize: keep opposite corner fixed
+  else { // resize: keep opposite corner fixed, snap span to a whole number of cells
     const cs=corners(g), opp=cs[3-drag.corner];
+    g.cols=Math.max(1,Math.round(Math.abs(p.x-opp[0])/cell)); g.rows=Math.max(1,Math.round(Math.abs(p.y-opp[1])/cell));
+    g.w=g.cols*cell; g.h=g.rows*cell;
     g.x=Math.round(Math.min(p.x,opp[0])); g.y=Math.round(Math.min(p.y,opp[1]));
-    g.w=Math.max(8,Math.round(Math.abs(p.x-opp[0]))); g.h=Math.max(8,Math.round(Math.abs(p.y-opp[1])));
+    renderProps();
   }
   draw(); cellInfo();
 });
@@ -166,16 +176,17 @@ document.addEventListener('keyup',e=>{ if(e.code==='Space'){ space=false; cv.sty
 // ---- toolbar ----
 $('add').onclick=()=>{ // drop a default 5×2 container near the view's top-left
   const x=Math.round(stage.scrollLeft/scale)+40, y=Math.round(stage.scrollTop/scale)+40;
-  grids.push({name:'container'+(grids.length+1), x, y, w:84*5, h:84*2, cols:5, rows:2});
+  grids.push({name:'container'+(grids.length+1), x, y, cols:5, rows:2, cell, w:5*cell, h:2*cell});
   sel=grids.length-1; draw(); renderList(); renderProps();
 };
 function dupSelected(){ if(sel<0) return; const g=grids[sel];
-  grids.push({name:(g.name||'grid')+'_copy', x:g.x+24, y:g.y+24, w:g.w, h:g.h, cols:g.cols, rows:g.rows});
+  grids.push({name:(g.name||'grid')+'_copy', x:g.x+24, y:g.y+24, cols:g.cols, rows:g.rows, cell, w:g.w, h:g.h});
   sel=grids.length-1; draw(); renderList(); renderProps(); }
 $('dup').onclick=dupSelected;
 $('save').onclick=async()=>{ status('saving…');
   try{ const r=await api('/api/grids',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session:curSession,grids})});
     status(`saved ${r.count} grid(s)`); }catch(e){ status('save failed'); } };
+$('cell').onchange=()=>{ const v=parseFloat($('cell').value); if(v>0){ cell=v; grids.forEach(g=>g.cell=cell); applyCell(); draw(); renderProps(); } };
 $('reload').onclick=()=>loadSessions($('sess').value).then(()=>load());
 $('sess').onchange=load;
 
