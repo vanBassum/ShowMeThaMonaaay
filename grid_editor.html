@@ -32,6 +32,7 @@
   <button id="reload" title="refresh sessions">↻</button>
   <span style="width:1px;height:20px;background:var(--line)"></span>
   <button id="add">+ Add grid</button>
+  <button id="dup">Duplicate</button>
   <button id="save" class="primary">Save</button>
   <span style="margin-left:auto"></span>
   <span id="status" class="pill">—</span>
@@ -147,6 +148,7 @@ cv.addEventListener('wheel',e=>{ e.preventDefault(); const r=cv.getBoundingClien
   scale=Math.min(4,Math.max(0.1,scale*(e.deltaY<0?1.1:1/1.1))); resize(); draw();
   const sr=stage.getBoundingClientRect(); stage.scrollLeft=ix*scale-(e.clientX-sr.left); stage.scrollTop=iy*scale-(e.clientY-sr.top); },{passive:false});
 document.addEventListener('keydown',e=>{ if(e.target.tagName==='INPUT') return;
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='d'){ dupSelected(); e.preventDefault(); return; }
   if(e.code==='Space'){ space=true; cv.style.cursor='grab'; e.preventDefault(); }
   if((e.key==='Delete'||e.key==='Backspace')&&sel>=0){ grids.splice(sel,1); sel=grids.length?0:-1; draw(); renderList(); renderProps(); }
   if(sel>=0){ const g=grids[sel], step=e.shiftKey?10:1;
@@ -161,6 +163,10 @@ $('add').onclick=()=>{ // drop a default 5×2 container near the view's top-left
   grids.push({name:'container'+(grids.length+1), x, y, w:84*5, h:84*2, cols:5, rows:2});
   sel=grids.length-1; draw(); renderList(); renderProps();
 };
+function dupSelected(){ if(sel<0) return; const g=grids[sel];
+  grids.push({name:(g.name||'grid')+'_copy', x:g.x+24, y:g.y+24, w:g.w, h:g.h, cols:g.cols, rows:g.rows});
+  sel=grids.length-1; draw(); renderList(); renderProps(); }
+$('dup').onclick=dupSelected;
 $('save').onclick=async()=>{ status('saving…');
   try{ const r=await api('/api/grids',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session:curSession,grids})});
     status(`saved ${r.count} grid(s)`); }catch(e){ status('save failed'); } };
