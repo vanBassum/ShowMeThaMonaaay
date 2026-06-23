@@ -5,6 +5,28 @@ See `CLAUDE.md` for the format rule.
 
 ---
 
+## 2026-06-23 — Pipe masked image into the existing detector (`mask-detect-frontend`)
+
+**What.** Added `--detect` to `mask_pipeline.py`: runs the current YOLO detector
+(detection only, no classifier) on the masked image AND the original, writes both
+overlays (`4_detect_masked.png` / `4_detect_original.png`), prints box counts.
+Masked output is now **black** background for the detector (`3_masked.png`); kept a
+**pink** copy (`3_masked_pink.png`) for human viewing. NB: the detector was trained
+on full screenshots, so black-bg is a domain shift — testing as-is before retraining.
+
+**Result (test screenshot 1, conf 0.25): masked 39 boxes vs original 44 — masked
+is cleaner.** Masking removes the panel-sized / blurry-world false positives the
+original produces, and empty cells stop generating boxes (black bg + occupancy
+filter). Most of the 5-box difference is dropped junk, not lost items. One real
+loss: a dark backpack got flooded away as background (mask gap, not detector).
+Large items still split into sub-boxes.
+
+**Verdict: hypothesis holds** — masking makes detection easier even un-retrained.
+**Next:** regenerate synthetic detector training data with the same black-bg masking
+so train matches inference; fix dark-item flood gaps. **Status: working, promising.**
+
+---
+
 ## 2026-06-23 — Relative bounding ruleset for subdivision (`mask-detect-frontend`)
 
 **Problem.** Pure geometric neighbour rules can't size the fixed equipment-doll

@@ -318,12 +318,45 @@ def distinct_colors(n):
     return out
 
 
+def run_detection(orig_pil, masked_pil, outdir, conf):
+    """Run the existing YOLO detector on the masked image and the original, draw
+    both overlays, and print box counts so we can compare. Detection only (no
+    classifier) -- the point here is detector recall/geometry, not naming."""
+    import cv2
+    import detect_items as di
+    if not os.path.exists(di.WEIGHTS):
+        print(f"[detect] no weights at {di.WEIGHTS} -- skipping detection")
+        return
+    model = di.get_model()
+
+    def detect(pil):
+        g = cv2.cvtColor(np.array(pil.convert("RGB")), cv2.COLOR_RGB2GRAY)
+        W, H = pil.size
+        dets = di.nms(di.tiled_detect(model, pil, conf))
+        return [d for d in dets if di.keep_box(g, *d[:4], W, H)]
+
+    def overlay(pil, dets, name):
+        bgr = cv2.cvtColor(np.array(pil.convert("RGB")), cv2.COLOR_RGB2BGR)
+        for x0, y0, x1, y1, s in dets:
+            cv2.rectangle(bgr, (int(x0), int(y0)), (int(x1), int(y1)), (0, 220, 0), 2)
+        cv2.imwrite(os.path.join(outdir, name), bgr)
+
+    md, od = detect(masked_pil), detect(orig_pil)
+    overlay(masked_pil, md, "4_detect_masked.png")
+    overlay(orig_pil, od, "4_detect_original.png")
+    print(f"[detect] conf={conf}: {len(md)} boxes on MASKED, {len(od)} on ORIGINAL")
+    print(f"[detect] wrote 4_detect_masked.png + 4_detect_original.png to {outdir}/")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-i", "--input", default="test screenshot 1.png")
     ap.add_argument("-o", "--outdir", default="out")
     ap.add_argument("--flood-thresh", type=float, default=22.0,
                     help="Max local RGB step while flooding the cell background.")
+    ap.add_argument("--detect", action="store_true",
+                    help="Also run the current YOLO detector on masked vs original.")
+    ap.add_argument("--conf", type=float, default=0.25, help="Detector confidence.")
     args = ap.parse_args()
 
     os.makedirs(args.outdir, exist_ok=True)
@@ -388,12 +421,19 @@ def main():
     Image.fromarray(mask, "L").save(os.path.join(args.outdir, "3_bg_mask.png"))
 
     masked = rgb.copy()
-    masked[mask == 0] = (255, 0, 255)                   # removed background -> bright pink
+    masked[mask == 0] = 0                               # detector input: black bg
     Image.fromarray(masked).save(os.path.join(args.outdir, "3_masked.png"))
+    pink = rgb.copy()
+    pink[mask == 0] = (255, 0, 255)                     # human view: bright pink bg
+    Image.fromarray(pink).save(os.path.join(args.outdir, "3_masked_pink.png"))
 
     print(f"foreground covers {100.0 * (mask > 0).mean():.1f}% of the image")
     print(f"wrote 1_ocr_containers.png, 2_subdivision.png, 3_bg_mask.png, "
-          f"3_masked.png to {args.outdir}/")
+          f"3_masked.png (black) + 3_masked_pink.png to {args.outdir}/")
+
+    # ---- 4 (optional) — run the current detector on masked vs original ----
+    if args.detect:
+        run_detection(img, Image.fromarray(masked), args.outdir, args.conf)
 
 
 if __name__ == "__main__":
