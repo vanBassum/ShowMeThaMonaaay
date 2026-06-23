@@ -28,6 +28,12 @@ in place (bigger crop preview in the panel) without leaving list view.
 
 **Status: usable review loop; retrieval ready to learn from corrections.**
 
+**Update — no Save button (auto-save).** Every correction/fluke auto-persists
+(debounced) with a passive "saved · gallery N" pill; reload restores the corrected
+session (api_scan prefers the corrected json). Banking is now **trusted-only**
+(corrected or OCR-sure) so untouched AI guesses no longer pollute the gallery —
+verified: 1 correction + 17 OCR-sure banked, not all 44.
+
 ---
 
 ## 2026-06-23 — Review/correct backend + UI (`mask-detect-frontend`)

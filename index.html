@@ -46,7 +46,7 @@
   <span style="margin-left:auto"></span>
   <span id="stats" class="pill">—</span>
   <span id="total" class="pill">0 ₽</span>
-  <button id="save" class="primary">Save</button>
+  <span id="saved" class="pill">—</span>
 </header>
 
 <div id="main">
@@ -112,10 +112,20 @@ function cropPreview(it){
   c.getContext('2d').drawImage(imgEl, x0,y0,w,h, 0,0,w*s,h*s);
   c.style.background='#000'; c.style.borderRadius='6px'; c.style.maxWidth='100%'; return c;
 }
+let saveT;
+function autosave(){
+  if(!data) return;
+  clearTimeout(saveT); $('saved').textContent='saving…';
+  saveT=setTimeout(async()=>{
+    try{ const r=await fetch('/api/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+      const j=await r.json(); $('saved').textContent=`saved · gallery ${j.gallery_total}`; }
+    catch(e){ $('saved').textContent='save failed'; }
+  },400);
+}
 function assign(it, item){
   it.id=item.id; it.short=item.short||item.shortName||''; it.name=item.name||'';
   it.price=item.price!=null?item.price:it.price; it.status='corrected'; it.corrected=true;
-  draw(); renderList(); updateTotals(); selPanel();
+  draw(); renderList(); updateTotals(); selPanel(); autosave();
 }
 function selPanel(){
   const p=$('panel'); p.innerHTML='';
@@ -123,7 +133,7 @@ function selPanel(){
   const it=data.items[sel];
   p.appendChild(cropPreview(it));
   const fl=document.createElement('button'); fl.textContent = it.status==='fluke'?'unmark fluke':'mark as fluke';
-  fl.onclick=()=>{ it.status = it.status==='fluke' ? 'corrected' : 'fluke'; draw(); renderList(); updateTotals(); selPanel(); };
+  fl.onclick=()=>{ it.status = it.status==='fluke' ? 'uncertain' : 'fluke'; draw(); renderList(); updateTotals(); selPanel(); autosave(); };
   p.appendChild(fl);
   const ch=document.createElement('div'); ch.innerHTML='<h3>suggestions</h3>'; const cg=document.createElement('div'); cg.className='grid';
   it.candidates.forEach(c=>{ const d=document.createElement('div'); d.className='cand'+(c.id===it.id?' active':'');
@@ -189,7 +199,7 @@ cv.addEventListener('mousedown',e=>{ if(e.button===1||(e.button===0&&space)){ pa
   if(e.button!==0||!data) return; cycleSelect(evToImg(e)); draw(); selPanel(); });
 window.addEventListener('mousemove',e=>{ if(pan){ stage.scrollLeft=pan.sl-(e.clientX-pan.x); stage.scrollTop=pan.st-(e.clientY-pan.y); } });
 window.addEventListener('mouseup',()=>{ if(pan){ pan=null; cv.style.cursor=space?'grab':'default'; } });
-cv.addEventListener('contextmenu',e=>{ e.preventDefault(); if(!data) return; const i=hit(evToImg(e)); if(i<0) return; const it=data.items[i]; it.status = it.status==='fluke'?'corrected':'fluke'; draw(); renderList(); updateTotals(); });
+cv.addEventListener('contextmenu',e=>{ e.preventDefault(); if(!data) return; const i=hit(evToImg(e)); if(i<0) return; const it=data.items[i]; it.status = it.status==='fluke'?'uncertain':'fluke'; draw(); renderList(); updateTotals(); autosave(); });
 cv.addEventListener('wheel',e=>{ e.preventDefault(); const r=cv.getBoundingClientRect(); const ix=(e.clientX-r.left)/scale, iy=(e.clientY-r.top)/scale;
   scale=Math.min(3,Math.max(0.1,scale*(e.deltaY<0?1.1:1/1.1))); resize(); draw();
   const sr=stage.getBoundingClientRect(); stage.scrollLeft=ix*scale-(e.clientX-sr.left); stage.scrollTop=iy*scale-(e.clientY-sr.top); }, {passive:false});
@@ -200,7 +210,6 @@ document.addEventListener('keyup',e=>{ if(e.code==='Space'){ space=false; cv.sty
 $('load').onclick=()=>loadAll(false);
 $('rescan').onclick=()=>loadAll(true);
 $('vScreen').onclick=viewScreen; $('vList').onclick=viewList;
-$('save').onclick=async()=>{ const r=await fetch('/api/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); const j=await r.json(); $('save').textContent=`Saved · gallery ${j.gallery_total}`; setTimeout(()=>$('save').textContent='Save',2000); };
 
 loadAll(false);
 </script>

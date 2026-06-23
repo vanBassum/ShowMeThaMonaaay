@@ -173,9 +173,15 @@ def api_icon():
 @app.route("/api/scan")
 def api_scan():
     name = request.args.get("image", "test screenshot 1.png")
-    cache = os.path.join(SESS, name.replace("/", "_").replace(".", "_") + ".scan.json")
-    if os.path.exists(cache) and request.args.get("force") != "1":
-        return Response(open(cache, encoding="utf-8").read(), mimetype="application/json")
+    key = name.replace("/", "_").replace(".", "_")
+    cache = os.path.join(SESS, key + ".scan.json")
+    corrected = os.path.join(SESS, key + ".corrected.json")
+    force = request.args.get("force") == "1"
+    if not force:
+        # prefer the corrected session (restores prior edits), then the scan cache
+        for p in (corrected, cache):
+            if os.path.exists(p):
+                return Response(open(p, encoding="utf-8").read(), mimetype="application/json")
     res = scan(name, float(request.args.get("conf", 0.25)))
     json.dump(res, open(cache, "w"))
     return jsonify(res)
@@ -197,11 +203,16 @@ def api_search():
                     for _, it in scored[:25]])
 
 
+def _trusted(it):
+    """High-precision labels only: user-corrected, or OCR-sure (OCR of the printed
+    name is gap-immune). Keeps the gallery clean of the model's shaky guesses."""
+    return bool(it.get("corrected")) or (it.get("status") == "sure" and it.get("src") == "ocr")
+
+
 def bank_gallery(data):
-    """Bank each non-fluke reviewed box as a real (crop, item_id) pair into the
-    gallery. Keyed by (image, box) so re-saving a session updates labels instead
-    of duplicating; fluke/removed boxes are dropped. This is the game-sourced
-    training data the flywheel accumulates."""
+    """Bank each TRUSTED box as a real (crop, item_id) pair into the gallery,
+    keyed by (image, box) so re-saving updates labels instead of duplicating.
+    Untouched/uncertain/fluke boxes are NOT banked (and removed if present)."""
     img_name = data.get("image", {}).get("name", "")
     path = os.path.join(ROOT, img_name)
     if not os.path.exists(path):
@@ -213,8 +224,11 @@ def bank_gallery(data):
     for it in data.get("items", []):
         x0, y0, x1, y1 = it["box"]
         key = f"{stem}__{x0}_{y0}_{x1}_{y1}"
-        if it.get("status") == "fluke":
+        if not _trusted(it):
             labels.pop(key, None)
+            cf = os.path.join(GCROPS, key + ".png")
+            if os.path.exists(cf):
+                os.remove(cf)
             continue
         img.crop((x0, y0, x1, y1)).save(os.path.join(GCROPS, key + ".png"))
         labels[key] = {"crop": key + ".png", "item_id": it["id"],
