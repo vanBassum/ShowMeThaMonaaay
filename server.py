@@ -28,17 +28,17 @@ import cls
 import ocr as ocrmod
 import mask_pipeline as mp
 import retrieval
+import sessionstore as ss
 
 RET_OK = 0.80          # cosine sim to a gallery crop above this == trust retrieval
 
 ROOT = os.path.dirname(__file__)
 DATA = os.path.join(ROOT, "data")
 ICONS = os.path.join(DATA, "icons")
-SESS = os.path.join(ROOT, "sessions")
 GALLERY = os.path.join(ROOT, "gallery")
 GCROPS = os.path.join(GALLERY, "crops")
 GLABELS = os.path.join(GALLERY, "labels.json")
-os.makedirs(SESS, exist_ok=True)
+os.makedirs(ss.SESSIONS, exist_ok=True)
 os.makedirs(GCROPS, exist_ok=True)
 
 app = Flask(__name__, static_folder=None)
@@ -60,7 +60,9 @@ def items_list():
 
 def cand_dict(it, prob, src):
     return {"id": it["id"], "short": it.get("shortName", ""),
-            "name": it.get("name", ""), "prob": round(float(prob), 3), "src": src}
+            "name": it.get("name", ""), "prob": round(float(prob), 3), "src": src,
+            "price": price_of(it),
+            "slots": max(1, it.get("width", 1) * it.get("height", 1))}
 
 
 def price_of(it):
@@ -90,9 +92,8 @@ def match_ocr(text):
     return (best, bs) if bs >= 0.8 else None
 
 
-def scan(image_name, conf=0.25):
-    path = os.path.join(ROOT, image_name)
-    img = Image.open(path).convert("RGB")
+def scan(sid, conf=0.25):
+    img = Image.open(ss.raw_path(sid)).convert("RGB")
     W, H = img.size
     items_list()
 
@@ -147,7 +148,8 @@ def scan(image_name, conf=0.25):
             "price": price_of(chosen), "slots": max(1, w * h),
             "candidates": cand_out,
         })
-    return {"image": {"name": image_name, "width": W, "height": H}, "items": out}
+    return {"session": sid, "image": {"name": sid, "width": W, "height": H},
+            "items": out}
 
 
 # ---- routes ----
@@ -156,11 +158,45 @@ def index():
     return send_file(os.path.join(ROOT, "index.html"))
 
 
+@app.route("/api/sessions")
+def api_sessions():
+    """Newest-first list of capture sessions for the picker. `reviewed` = the
+    human has saved corrections; `total` is the live (corrected if present)
+    grab-value so the list doubles as a history of past scans."""
+    out = []
+    for sid in ss.list_ids():
+        p = ss.corrected_path(sid)
+        reviewed = os.path.exists(p)
+        if not reviewed:
+            p = ss.scan_path(sid)
+        total, items = None, None
+        if os.path.exists(p):
+            try:
+                d = json.load(open(p, encoding="utf-8"))
+                act = [it for it in d.get("items", []) if it.get("status") != "fluke"]
+                items, total = len(act), sum(it.get("price", 0) for it in act)
+            except Exception:
+                pass
+        out.append({"id": sid, "reviewed": reviewed, "items": items, "total": total})
+    return jsonify(out)
+
+
+@app.route("/api/import")
+def api_import():
+    """Make a session from a file already on disk (path relative to project
+    root) — handy for re-reviewing old screenshots without the F2 capture."""
+    rel = request.args.get("path", "")
+    src = os.path.join(ROOT, rel)
+    if not os.path.exists(src):
+        return ("not found", 404)
+    sid = ss.create(Image.open(src).convert("RGB"))
+    return jsonify({"id": sid})
+
+
 @app.route("/api/image")
 def api_image():
-    name = request.args.get("name", "test screenshot 1.png")
-    p = os.path.join(ROOT, name)
-    return send_file(p) if os.path.exists(p) else ("not found", 404)
+    sid = request.args.get("session", "")
+    return send_file(ss.raw_path(sid)) if ss.exists(sid) else ("not found", 404)
 
 
 @app.route("/api/icon")
@@ -172,18 +208,17 @@ def api_icon():
 
 @app.route("/api/scan")
 def api_scan():
-    name = request.args.get("image", "test screenshot 1.png")
-    key = name.replace("/", "_").replace(".", "_")
-    cache = os.path.join(SESS, key + ".scan.json")
-    corrected = os.path.join(SESS, key + ".corrected.json")
+    sid = request.args.get("session", "")
+    if not ss.exists(sid):
+        return ("no such session", 404)
     force = request.args.get("force") == "1"
     if not force:
         # prefer the corrected session (restores prior edits), then the scan cache
-        for p in (corrected, cache):
+        for p in (ss.corrected_path(sid), ss.scan_path(sid)):
             if os.path.exists(p):
                 return Response(open(p, encoding="utf-8").read(), mimetype="application/json")
-    res = scan(name, float(request.args.get("conf", 0.25)))
-    json.dump(res, open(cache, "w"))
+    res = scan(sid, float(request.args.get("conf", 0.25)))
+    json.dump(res, open(ss.scan_path(sid), "w"))
     return jsonify(res)
 
 
@@ -199,32 +234,26 @@ def api_search():
             scored.append((norm.index(q), it))
     scored.sort(key=lambda s: s[0])
     return jsonify([{"id": it["id"], "short": it.get("shortName", ""),
-                     "name": it.get("name", ""), "price": price_of(it)}
+                     "name": it.get("name", ""), "price": price_of(it),
+                     "slots": max(1, it.get("width", 1) * it.get("height", 1))}
                     for _, it in scored[:25]])
 
 
-def _trusted(it):
-    """High-precision labels only: user-corrected, or OCR-sure (OCR of the printed
-    name is gap-immune). Keeps the gallery clean of the model's shaky guesses."""
-    return bool(it.get("corrected")) or (it.get("status") == "sure" and it.get("src") == "ocr")
-
-
-def bank_gallery(data):
+def bank_gallery(sid, data):
     """Bank each TRUSTED box as a real (crop, item_id) pair into the gallery,
-    keyed by (image, box) so re-saving updates labels instead of duplicating.
-    Untouched/uncertain/fluke boxes are NOT banked (and removed if present)."""
-    img_name = data.get("image", {}).get("name", "")
-    path = os.path.join(ROOT, img_name)
-    if not os.path.exists(path):
+    keyed by (session, box) so re-saving updates labels instead of duplicating.
+    The session id stays on every entry, so any banked crop traces back to the
+    exact scan it came from. Untouched/uncertain/fluke boxes are NOT banked (and
+    removed if present)."""
+    if not ss.exists(sid):
         return 0, 0
-    img = Image.open(path).convert("RGB")
-    stem = os.path.splitext(os.path.basename(img_name))[0].replace(" ", "_")
+    img = Image.open(ss.raw_path(sid)).convert("RGB")
     labels = json.load(open(GLABELS, encoding="utf-8")) if os.path.exists(GLABELS) else {}
     banked = 0
     for it in data.get("items", []):
         x0, y0, x1, y1 = it["box"]
-        key = f"{stem}__{x0}_{y0}_{x1}_{y1}"
-        if not _trusted(it):
+        key = f"{sid}__{x0}_{y0}_{x1}_{y1}"
+        if not retrieval.trusted(it):
             labels.pop(key, None)
             cf = os.path.join(GCROPS, key + ".png")
             if os.path.exists(cf):
@@ -235,7 +264,7 @@ def bank_gallery(data):
                        "short": it.get("short", ""), "name": it.get("name", ""),
                        "status": it.get("status"), "src": it.get("src"),
                        "corrected": bool(it.get("corrected")), "prob": it.get("prob"),
-                       "ocr": it.get("ocr", ""), "image": img_name, "box": it["box"],
+                       "ocr": it.get("ocr", ""), "session": sid, "box": it["box"],
                        "ts": int(time.time())}
         banked += 1
     json.dump(labels, open(GLABELS, "w"), indent=1)
@@ -245,11 +274,12 @@ def bank_gallery(data):
 @app.route("/api/save", methods=["POST"])
 def api_save():
     data = request.get_json(force=True)
-    name = data.get("image", {}).get("name", "session")
-    p = os.path.join(SESS, name.replace("/", "_").replace(".", "_") + ".corrected.json")
-    json.dump(data, open(p, "w"), indent=1)
-    banked, total = bank_gallery(data)
-    return jsonify({"ok": True, "saved": os.path.basename(p),
+    sid = data.get("session", "")
+    if not ss.exists(sid):
+        return ("no such session", 404)
+    json.dump(data, open(ss.corrected_path(sid), "w"), indent=1)
+    banked, total = bank_gallery(sid, data)
+    return jsonify({"ok": True, "session": sid,
                     "corrected": sum(1 for it in data.get("items", []) if it.get("corrected")),
                     "banked": banked, "gallery_total": total})
 

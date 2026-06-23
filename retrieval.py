@@ -31,7 +31,10 @@ _IDX = None
 _MTIME = None
 
 
-def _trusted(e):
+def trusted(e):
+    """High-precision labels only: user-corrected, or OCR-sure (OCR of the printed
+    name is gap-immune). Keeps the gallery (and this index) clean of the model's
+    own shaky guesses. Shared by server.py's gallery banking."""
     return bool(e.get("corrected")) or (e.get("status") == "sure" and e.get("src") == "ocr")
 
 
@@ -58,7 +61,7 @@ def index():
     labels = json.load(open(GLABELS, encoding="utf-8"))
     E, ids = [], []
     for e in labels.values():
-        if not _trusted(e):
+        if not trusted(e):
             continue
         p = os.path.join(GCROPS, e["crop"])
         if os.path.exists(p):

@@ -9,8 +9,8 @@
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--txt); font:13px/1.4 system-ui, sans-serif; height:100vh; display:flex; flex-direction:column; overflow:hidden; }
   header { background:var(--panel); border-bottom:1px solid var(--line); padding:8px 12px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-  input, button { background:#11141a; color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:5px 8px; font:inherit; }
-  input[type=text]{ width:150px; } button { cursor:pointer; } button:hover { border-color:var(--accent); }
+  input, button, select { background:#11141a; color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:5px 8px; font:inherit; }
+  input[type=text]{ width:150px; } select{ min-width:220px; max-width:340px; } button { cursor:pointer; } button:hover { border-color:var(--accent); }
   button.primary { background:var(--accent); color:#07120c; border-color:var(--accent); font-weight:600; }
   button.on { border-color:var(--accent); color:var(--accent); }
   .pill { background:#11141a; border:1px solid var(--line); border-radius:999px; padding:3px 10px; color:var(--muted); }
@@ -30,6 +30,7 @@
   th, td { text-align:left; padding:5px 8px; border-bottom:1px solid var(--line); }
   th { color:var(--muted); font-weight:600; cursor:pointer; }
   tr.fluke { opacity:.4; text-decoration:line-through; }
+  tr.sel td { background:#13212c; box-shadow:inset 3px 0 0 var(--cor); }
   .dot { display:inline-block; width:9px; height:9px; border-radius:50%; }
   #overlay { position:fixed; inset:0; background:rgba(10,12,14,.7); display:none; align-items:center; justify-content:center; font-size:16px; color:var(--accent); }
   small { color:var(--muted); }
@@ -37,9 +38,12 @@
 </head>
 <body>
 <header>
-  <input id="img" type="text" value="test screenshot 1.png" />
-  <button id="load">Load</button>
+  <select id="sess" title="capture session"></select>
+  <button id="reload" title="refresh session list">↻</button>
   <button id="rescan">Rescan</button>
+  <span style="width:1px;height:20px;background:var(--line)"></span>
+  <input id="imp" type="text" placeholder="import file path…" />
+  <button id="import">Import</button>
   <span style="width:1px;height:20px;background:var(--line)"></span>
   <button id="vScreen" class="on">Screenshot</button>
   <button id="vList">List</button>
@@ -65,19 +69,35 @@ const COL = { sure:'#39d98a', uncertain:'#ffb020', corrected:'#48c0ff', fluke:'#
 function api(p){ return fetch(p).then(r=>r.json()); }
 function show(v){ $('overlay').style.display = v ? 'flex':'none'; }
 
+async function loadSessions(want){
+  const list = await api('/api/sessions');
+  const selEl = $('sess'); selEl.innerHTML='';
+  list.forEach(s=>{ const o=document.createElement('option'); o.value=s.id;
+    const v = s.total!=null ? ` · ${s.total.toLocaleString()} ₽` : '';
+    o.textContent = s.id + v + (s.reviewed?' ✓':''); selEl.appendChild(o); });
+  if(want && list.some(s=>s.id===want)) selEl.value=want;
+  return list;
+}
 async function loadAll(force) {
-  const name = $('img').value.trim();
+  const sid = $('sess').value;
+  if(!sid) return;
   show(true);
-  imgEl.src = '/api/image?name=' + encodeURIComponent(name) + '&t=' + Date.now();
+  imgEl.src = '/api/image?session=' + encodeURIComponent(sid) + '&t=' + Date.now();
   await new Promise(r => { imgEl.onload = r; imgEl.onerror = r; });
-  try { data = await api('/api/scan?image=' + encodeURIComponent(name) + (force?'&force=1':'')); }
+  try { data = await api('/api/scan?session=' + encodeURIComponent(sid) + (force?'&force=1':'')); }
   catch(e){ alert('scan failed: '+e); show(false); return; }
   W = data.image.width; H = data.image.height; sel=-1;
   resize(); draw(); renderList(); updateTotals(); selPanel();
   show(false);
 }
+async function init(){
+  const want = new URLSearchParams(location.search).get('session');
+  const list = await loadSessions(want);
+  if(!list.length){ $('panel').innerHTML='<h3>no sessions yet</h3><small>Press F2 in the capture app, or import a file path above.</small>'; return; }
+  if(!(want && list.some(s=>s.id===want))) $('sess').value=list[0].id;
+  loadAll(false);
+}
 function resize(){ cv.width=Math.round(W*scale); cv.height=Math.round(H*scale); }
-function syncTotals(){}
 
 function draw(){
   if(!W) return;
@@ -93,9 +113,13 @@ function draw(){
       ctx.strokeStyle='#fff'; ctx.lineWidth=5/scale; ctx.strokeRect(x0,y0,w,h);   // white halo
       ctx.strokeStyle=c;      ctx.lineWidth=2.5/scale; ctx.strokeRect(x0,y0,w,h);
     } else {
+      ctx.globalAlpha = it.status==='fluke' ? 0.25 : 1;
       ctx.strokeStyle=c; ctx.lineWidth=1.3/scale; ctx.strokeRect(x0,y0,w,h);
+      ctx.globalAlpha=1;
     }
+    ctx.globalAlpha = (!on && it.status==='fluke') ? 0.25 : 1;
     ctx.fillStyle=on?'#fff':c; ctx.fillText((it.short||'?'), x0+2/scale, y0-2/scale);
+    ctx.globalAlpha=1;
   }
 }
 function hit(p){ for(let i=data.items.length-1;i>=0;i--){ const [a,b,c,d]=data.items[i].box; if(p.x>=a&&p.x<=c&&p.y>=b&&p.y<=d) return i; } return -1; }
@@ -103,6 +127,19 @@ function hit(p){ for(let i=data.items.length-1;i>=0;i--){ const [a,b,c,d]=data.i
 function hitsAt(p){ const r=[]; data.items.forEach((it,i)=>{ const [a,b,c,d]=it.box; if(p.x>=a&&p.x<=c&&p.y>=b&&p.y<=d) r.push(i); });
   return r.sort((i,j)=>{ const A=data.items[i].box, B=data.items[j].box; return (A[2]-A[0])*(A[3]-A[1])-(B[2]-B[0])*(B[3]-B[1]); }); }
 function cycleSelect(p){ const hs=hitsAt(p); if(!hs.length){ sel=-1; return; } const k=hs.indexOf(sel); sel=hs[(k+1)%hs.length]; }
+// the next item to review after `curIdx`, in the order shown in the Grab list
+// (so culling a fluke lands on the item the user actually sees next, not an
+// overlapping/duplicate detection). Call BEFORE marking curIdx a fluke. -1 if none.
+function nextInListOrder(curIdx){
+  if(!data) return -1;
+  const col=COLS.find(c=>c.k===sortL.k)||COLS[1];
+  const ord=data.items.map((it,i)=>({it,i})).filter(x=>x.it.status!=='fluke')
+    .sort((a,b)=>{ const va=col.val(a.it),vb=col.val(b.it); return (va<vb?-1:va>vb?1:0)*sortL.dir; });
+  if(ord.length<=1) return -1;                       // current is the only one left
+  const pos=ord.findIndex(x=>x.i===curIdx);
+  if(pos<0) return ord[0].i;
+  return pos+1<ord.length ? ord[pos+1].i : ord[pos-1].i;   // next, or new-last
+}
 function evToImg(e){ const r=cv.getBoundingClientRect(); return {x:(e.clientX-r.left)/scale,y:(e.clientY-r.top)/scale}; }
 
 // ---- selection panel ----
@@ -124,7 +161,9 @@ function autosave(){
 }
 function assign(it, item){
   it.id=item.id; it.short=item.short||item.shortName||''; it.name=item.name||'';
-  it.price=item.price!=null?item.price:it.price; it.status='corrected'; it.corrected=true;
+  if(item.price!=null) it.price=item.price;
+  if(item.slots!=null) it.slots=item.slots;
+  it.status='corrected'; it.corrected=true;
   draw(); renderList(); updateTotals(); selPanel(); autosave();
 }
 function selPanel(){
@@ -133,7 +172,11 @@ function selPanel(){
   const it=data.items[sel];
   p.appendChild(cropPreview(it));
   const fl=document.createElement('button'); fl.textContent = it.status==='fluke'?'unmark fluke':'mark as fluke';
-  fl.onclick=()=>{ it.status = it.status==='fluke' ? 'uncertain' : 'fluke'; draw(); renderList(); updateTotals(); selPanel(); autosave(); };
+  fl.onclick=()=>{ const marking = it.status!=='fluke';
+    const next = marking ? nextInListOrder(sel) : -1;   // pick next BEFORE status change
+    it.status = marking ? 'fluke' : 'uncertain';
+    if(marking) sel = next;                             // jump to next so culling is a fast pass
+    draw(); renderList(); updateTotals(); selPanel(); autosave(); };
   p.appendChild(fl);
   const ch=document.createElement('div'); ch.innerHTML='<h3>suggestions</h3>'; const cg=document.createElement('div'); cg.className='grid';
   it.candidates.forEach(c=>{ const d=document.createElement('div'); d.className='cand'+(c.id===it.id?' active':'');
@@ -165,7 +208,7 @@ function buildTable(title, s, side){
   COLS.forEach(c=>{ const ar=s.k===c.k?(s.dir<0?' ▼':' ▲'):''; h+=`<th data-col="${c.k}" data-side="${side}">${c.label}${ar}</th>`; });
   h+='</tr>';
   for(const {it,i} of rows){
-    h+=`<tr data-i="${i}" style="cursor:pointer"><td><img src="/api/icon?id=${it.id}"></td>`+
+    h+=`<tr data-i="${i}" class="${i===sel?'sel':''}" style="cursor:pointer"><td><img src="/api/icon?id=${it.id}"></td>`+
       `<td>${it.short}<br><small>${it.name}</small></td>`+
       `<td>${Math.round(it.price/Math.max(1,it.slots)).toLocaleString()}</td>`+
       `<td>${it.price.toLocaleString()}</td>`+
@@ -180,7 +223,8 @@ function renderList(){
     const s=th.dataset.side==='L'?sortL:sortR, k=th.dataset.col;
     if(s.k===k) s.dir*=-1; else { s.k=k; s.dir=(k==='short')?1:-1; }
     renderList(); });
-  $('list').querySelectorAll('tr[data-i]').forEach(tr=>tr.onclick=()=>{ sel=+tr.dataset.i; selPanel(); draw(); });
+  $('list').querySelectorAll('tr[data-i]').forEach(tr=>tr.onclick=()=>{ sel=+tr.dataset.i; selPanel(); draw(); renderList(); });
+  const selRow=$('list').querySelector('tr.sel'); if(selRow) selRow.scrollIntoView({block:'nearest'});
 }
 function updateTotals(){
   const act=data.items.filter(it=>it.status!=='fluke');
@@ -207,11 +251,18 @@ document.addEventListener('keydown',e=>{ if(e.target.tagName==='INPUT') return; 
 document.addEventListener('keyup',e=>{ if(e.code==='Space'){ space=false; cv.style.cursor='default'; } });
 
 // ---- toolbar ----
-$('load').onclick=()=>loadAll(false);
+$('sess').onchange=()=>loadAll(false);
+$('reload').onclick=()=>loadSessions($('sess').value).then(()=>loadAll(false));
 $('rescan').onclick=()=>loadAll(true);
+$('import').onclick=async()=>{
+  const path=$('imp').value.trim(); if(!path) return;
+  let r; try{ r=await api('/api/import?path='+encodeURIComponent(path)); }catch(e){ alert('import failed: '+e); return; }
+  if(r&&r.id){ await loadSessions(r.id); $('sess').value=r.id; $('imp').value=''; loadAll(false); } else alert('import failed');
+};
+$('imp').addEventListener('keydown',e=>{ if(e.key==='Enter') $('import').click(); });
 $('vScreen').onclick=viewScreen; $('vList').onclick=viewList;
 
-loadAll(false);
+init();
 </script>
 </body>
 </html>

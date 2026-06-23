@@ -68,10 +68,15 @@ def read_lines(img, scale=2, cutoff=1):
     proc = proc.resize((img.width * scale, img.height * scale), Image.LANCZOS)
     res = asyncio.run(_recognize(proc.convert("RGBA")))
     out = []
-    for line in res.lines:
+    # winsdk 1.0.0b10 on Python 3.13 has a broken __iter__ for projected
+    # IVectorView (raises "iter() returned non-iterator"), so walk by index.
+    lines = res.lines
+    for li in range(lines.size):
+        line = lines.get_at(li)
+        words = line.words
         boxes = [(w.bounding_rect.x, w.bounding_rect.y,
                   w.bounding_rect.width, w.bounding_rect.height)
-                 for w in line.words]
+                 for w in (words.get_at(wi) for wi in range(words.size))]
         if not boxes:
             continue
         x0 = min(b[0] for b in boxes) / scale
