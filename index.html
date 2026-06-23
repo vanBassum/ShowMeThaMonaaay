@@ -78,6 +78,7 @@ async function loadSessions(want){
   if(want && list.some(s=>s.id===want)) selEl.value=want;
   return list;
 }
+let loadedSession=null, knownNewest=null;
 async function loadAll(force) {
   const sid = $('sess').value;
   if(!sid) return;
@@ -86,16 +87,27 @@ async function loadAll(force) {
   await new Promise(r => { imgEl.onload = r; imgEl.onerror = r; });
   try { data = await api('/api/scan?session=' + encodeURIComponent(sid) + (force?'&force=1':'')); }
   catch(e){ alert('scan failed: '+e); show(false); return; }
-  W = data.image.width; H = data.image.height; sel=-1;
+  W = data.image.width; H = data.image.height; sel=-1; loadedSession=sid;
   resize(); draw(); renderList(); updateTotals(); selPanel();
   show(false);
 }
 async function init(){
   const want = new URLSearchParams(location.search).get('session');
   const list = await loadSessions(want);
-  if(!list.length){ $('panel').innerHTML='<h3>no sessions yet</h3><small>Press F2 in the capture app, or import a file path above.</small>'; return; }
-  if(!(want && list.some(s=>s.id===want))) $('sess').value=list[0].id;
-  loadAll(false);
+  knownNewest = list.length ? list[0].id : null;
+  if(!list.length){ $('panel').innerHTML='<h3>no sessions yet</h3><small>Press <b>F2</b> in-game to capture, or import a file path above.</small>'; }
+  else { if(!(want && list.some(s=>s.id===want))) $('sess').value=list[0].id; loadAll(false); }
+  setInterval(pollNewCapture, 2000);
+}
+// backend's F2 hotkey mints sessions/<ts>/; when a brand-new one appears, load it
+async function pollNewCapture(){
+  let list; try{ list = await api('/api/sessions'); }catch(e){ return; }
+  if(!list.length) return;
+  const newest = list[0].id;
+  if(knownNewest!==null && newest>knownNewest){          // a fresh F2 capture
+    knownNewest = newest;
+    await loadSessions(newest); $('sess').value=newest; loadAll(false);
+  } else { knownNewest = newest; }
 }
 function resize(){ cv.width=Math.round(W*scale); cv.height=Math.round(H*scale); }
 

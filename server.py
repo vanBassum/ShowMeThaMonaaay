@@ -284,6 +284,28 @@ def api_save():
                     "banked": banked, "gallery_total": total})
 
 
+def _on_f2():
+    """F2 pressed: grab the screen into a new session. The frontend polls
+    /api/sessions and auto-loads the newest, so the browser updates itself —
+    no popup, no separate app."""
+    try:
+        from PIL import ImageGrab
+        sid = ss.create(ImageGrab.grab().convert("RGB"))
+        print(f"[F2] captured session {sid}")
+    except Exception as e:
+        print(f"[F2] capture failed: {e}")
+
+
+def start_f2_hotkey():
+    try:
+        import keyboard
+        keyboard.add_hotkey("f2", _on_f2)
+        print("[F2] hotkey armed — press F2 in-game to capture")
+    except Exception as e:
+        print(f"[F2] hotkey unavailable ({e}); use the Import box in the UI instead")
+
+
 if __name__ == "__main__":
+    start_f2_hotkey()
     print("open http://127.0.0.1:5000")
     app.run(host="127.0.0.1", port=5000, debug=False)
