@@ -17,6 +17,7 @@ import os, json, sys
 AUTO = "data/icon_item_map.json"
 OVERRIDES = "icon_overrides.json"
 ITEMS = "data/items.json"
+DEVICONS = "data/icons"
 CACHE = os.path.join(os.environ["LOCALAPPDATA"], "Temp", "Battlestate Games",
                      "EscapeFromTarkov", "Icon Cache", "live")
 
@@ -109,6 +110,7 @@ def cmd_review(n=400):
     rows.sort(key=lambda x: -x[0])
     rows = rows[:n]
     cap = (CACHE.replace("\\", "/").rstrip("/") + "/")
+    devdir = os.path.abspath(DEVICONS).replace("\\", "/").rstrip("/") + "/"
     html = ["<meta charset=utf8><style>body{background:#222;color:#ddd;font:13px sans-serif}",
             "img{height:48px;vertical-align:middle;background:#111}",
             "tr:nth-child(even){background:#2a2a2a}td{padding:3px 8px}",
@@ -116,7 +118,7 @@ def cmd_review(n=400):
             "<tr><th>icon</th><th>cache</th><th>-></th><th>dev</th><th>name</th>"
             "<th>score</th><th>margin</th><th>alts</th><th>src</th></tr>"]
     for _, num, r in rows:
-        dev = f"data/icons/{r.get('item_id')}.webp" if r.get("item_id") else ""
+        dev = f"file:///{devdir}{r.get('item_id')}.webp" if r.get("item_id") else ""
         html.append(
             f"<tr><td>#{num}</td>"
             f"<td><img src='file:///{cap}{num}.png'></td><td>-&gt;</td>"
