@@ -5,6 +5,41 @@ See `CLAUDE.md` for the format rule.
 
 ---
 
+## 2026-06-24 — Single-pass multi-class YOLO from the icon cache (`yolo-without-detector`)
+
+**New approach.** Drop the detector→crop→classify/retrieve pipeline. Train ONE
+YOLO that outputs box + item-identity in a single pass. "Identity" = the icon
+itself (class = icon file number); icon→item-name mapping is deferred (do it
+later via tarkov.dev, no retrain).
+
+**Data source (key find).** The live game caches every rendered item icon at
+`%LOCALAPPDATA%\Temp\Battlestate Games\EscapeFromTarkov\Icon Cache\live\` —
+**3,446 PNGs** (~53 MB) + `index.json` (keys are int32 hashes, not item IDs).
+Icons render at ~63px/cell; footprint = `round((px-1)/63)`. All 3446 map cleanly
+(1596×1x1, 711×2x1, …). Real game pixels >> synthetic.
+
+**Pipeline (new files).**
+- `build_dataset.py` — paste real icons onto `templates/screen1/background.png`
+  at valid grid cells (21 containers, 215 cells, ~86px pitch; rescale icons
+  64px→86px). Emits YOLO labels with class=icon. `--max-classes`/`--per-class`/
+  `--max-objs` (objs/image) control subset + density.
+- `train.py` — ultralytics YOLO11, geometry aug off (icons don't flip/rotate).
+
+**Results.**
+- *Didn't work:* 200 classes, **30 images**, 3 then 50 epochs → mAP≈0, max
+  confidence ~0.01 (collapsed) even on TRAIN images. Cause = too few images
+  (dense packing → only 30 scenes), not the multi-class idea.
+- *Worked:* 20 classes, **96 sparse images** (`--max-objs 25`), 80 epochs,
+  imgsz 1536 → **mAP50 0.995, mAP50-95 0.99, recall 1.0**. Held-out val image:
+  25/25 detected, correct identities, high conf.
+
+**Decision / next.** Approach proven. Image COUNT is the lever, not class count —
+need ~5k+ sparse images to cover all 3446 classes. Scale up generation + a long
+train for the real model. The dev-uses-3-epochs rule does NOT apply to the
+multi-class head (needs many more).
+
+---
+
 ## 2026-06-23 — Embedding-retrieval voter + review-UI polish (`mask-detect-frontend`)
 
 **Retrieval voter (`retrieval.py`).** Reuse the trained IconNet as a feature
