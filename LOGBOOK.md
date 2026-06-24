@@ -5,6 +5,39 @@ See `CLAUDE.md` for the format rule.
 
 ---
 
+## 2026-06-24 — Icon# → item linking (names/prices) + manual-fix layer (`yolo-without-detector`)
+
+**Problem.** The detector outputs `#icon` (cache file number), not a real item.
+Need icon# → {name, price, size}. Also some icons are shared/near-identical
+(keys, dogtags, armband colors, currency) — defer those to OCR.
+
+**Approach (visual match, NOT hash reverse).** Both sources render at 64px/cell.
+`fetch_items.py` (reused) pulls 5044 tarkov.dev items (name/size/prices/
+gridImageLink) → `data/items.json` + `data/icons/<id>.webp`. `match_icons.py`:
+pre-filter candidates by cell footprint, then score masked-L2 ONLY inside the
+cache icon's alpha silhouette (so the bg difference — cache transparent vs dev
+baked-dark — can't poison it). This is reliable here because we match clean
+render↔clean render (unlike the old crop↔icon "gap" that sank `retrieval.py`).
+
+**Result.** All 3446 icons matched (0 no-candidate). score (RMS color, lower
+better): med 21, p90 33. margin (gap to 2nd): med 2.4; **2192 have margin<5** =
+the shared/near-twin icons (top-1 often still right, sibling close behind) → OCR
+later. Random montage + sample (Armband, Dogtag BEAR, MS2000, Surv12, Epsilon,
+Eberlestock) visually correct.
+
+**Manual-fix layer (`icon_map.py`).** Effective map = auto + manual, manual wins
+and survives re-matching:
+- `data/icon_item_map.json` auto (gitignored, regenerated)
+- `icon_overrides.json` manual fixes (tracked, override auto)
+- CLI: `review [N]` -> `out/icon_review.html` (cache→dev images, worst-ambiguity
+  first), `set <#> "<name|id>"`, `find`, `show`, `unset`. Roundtrip verified.
+
+**Next.** Full 3446-class train can run in parallel (class→item collapse happens
+at OUTPUT via this map, so no retrain needed if matches change). Then OCR pass
+for margin<5 icons.
+
+---
+
 ## 2026-06-24 — Single-pass multi-class YOLO from the icon cache (`yolo-without-detector`)
 
 **New approach.** Drop the detector→crop→classify/retrieve pipeline. Train ONE
