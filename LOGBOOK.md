@@ -38,6 +38,16 @@ need ~5k+ sparse images to cover all 3446 classes. Scale up generation + a long
 train for the real model. The dev-uses-3-epochs rule does NOT apply to the
 multi-class head (needs many more).
 
+**Follow-up — 100-class demo (`predict.py`).** 100 classes, 200 sparse images,
+100 epochs, imgsz 1536 → **mAP50 0.983, mAP50-95 0.968** (plateaued ~0.98 by
+epoch ~45; ~7s/epoch on GPU). Per-epoch curve was the clean S-shape: cls_loss
+5.43→0.60, mAP50 0→0.98. Annotated synth val img = all items boxed + correct
+`#icon` IDs in one pass. 300-class/30-epoch attempt earlier was weak (mAP50
+0.06) — too few instances/class AND too few epochs; fix = more epochs +
+per-class instances, not fewer classes. NOTE: on a REAL screenshot the 100-class
+demo finds ~0 (its 100 random icons aren't the user's items) — only the full
+3446-class model makes real screenshots work.
+
 ---
 
 ## 2026-06-23 — Embedding-retrieval voter + review-UI polish (`mask-detect-frontend`)
