@@ -89,8 +89,9 @@ def fresh_occ(containers):
     return [[[True] * c["cols"] for _ in range(c["rows"])] for c in containers]
 
 
-def build_image(bg, containers, queue, inset=2, max_objs=None):
-    """Pop icons from `queue` and paste until no more fit. Returns (img, labels)."""
+def build_image(bg, containers, queue, icons_ram, inset=2, max_objs=None):
+    """Pop icons from `queue` and paste until no more fit. Returns (img, labels).
+    `icons_ram` maps path -> preloaded RGBA Image (decoded once, reused)."""
     img = bg.copy()
     occ = fresh_occ(containers)
     labels = []  # (class_idx, cx, cy, w, h) normalized
@@ -115,7 +116,7 @@ def build_image(bg, containers, queue, inset=2, max_objs=None):
         y0 = c["y"] + row * c["ch"] + inset
         bw = cw * c["cw"] - 2 * inset
         bh = ch * c["ch"] - 2 * inset
-        ic = Image.open(path).convert("RGBA").resize(
+        ic = icons_ram[path].resize(
             (max(1, round(bw)), max(1, round(bh))), Image.LANCZOS)
         img.paste(ic, (round(x0), round(y0)), ic)
         cx = (x0 + bw / 2) / W
@@ -123,6 +124,41 @@ def build_image(bg, containers, queue, inset=2, max_objs=None):
         labels.append((cls_idx, cx, cy, bw / W, bh / H))
     queue.extend(reversed(leftover))  # carry unplaceable icons to next image
     return img.convert("RGB"), labels
+
+
+# ---- multiprocessing worker (icons decoded once per process, kept in RAM) ----
+_W = {}  # per-process cache: bg, containers, icons_ram
+
+
+def _init_worker(bg_path, containers, icon_paths):
+    bg = Image.open(bg_path).convert("RGBA")
+    bg.load()
+    _W["bg"] = bg
+    _W["containers"] = containers
+    _W["icons"] = {p: Image.open(p).convert("RGBA") for p in icon_paths}
+    for im in _W["icons"].values():
+        im.load()
+
+
+def _gen_chunk(task):
+    """Pack one worker's slice of the placement queue into images on disk."""
+    wid, chunk, val_frac, max_objs, seed = task
+    rng = random.Random(seed * 100000 + wid)
+    queue = list(chunk)
+    bg, containers, icons_ram = _W["bg"], _W["containers"], _W["icons"]
+    n = 0
+    while queue:
+        split = "val" if rng.random() < val_frac else "train"
+        img, labels = build_image(bg, containers, queue, icons_ram, max_objs=max_objs)
+        if not labels:
+            break
+        name = f"w{wid:02d}_{n:05d}"
+        img.save(os.path.join(OUT, "images", split, name + ".png"))
+        with open(os.path.join(OUT, "labels", split, name + ".txt"), "w") as f:
+            for cls, cx, cy, w, h in labels:
+                f.write(f"{cls} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}\n")
+        n += 1
+    return wid, n
 
 
 def main():
@@ -135,12 +171,13 @@ def main():
                     help="cap icons per image (fewer => more, sparser images)")
     ap.add_argument("--val-frac", type=float, default=0.1)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2)),
+                    help="parallel generation processes (default: all cores)")
     args = ap.parse_args()
     random.seed(args.seed)
 
     icons = load_icons(args.max_classes, args.seed)
     containers = load_grids()
-    bg = Image.open(os.path.join(TEMPLATE_DIR, "background.png")).convert("RGBA")
     print(f"icons/classes: {len(icons)}  containers: {len(containers)}")
 
     # contiguous class indices; remember original icon number
@@ -161,21 +198,31 @@ def main():
     for sub in ("images/train", "images/val", "labels/train", "labels/val"):
         os.makedirs(os.path.join(OUT, sub), exist_ok=True)
 
-    idx = 0
-    while queue:
-        split = "val" if random.random() < args.val_frac else "train"
-        img, labels = build_image(bg, containers, queue, max_objs=args.max_objs)
-        if not labels:
-            break
-        name = f"s{idx:05d}"
-        img.save(os.path.join(OUT, "images", split, name + ".png"))
-        with open(os.path.join(OUT, "labels", split, name + ".txt"), "w") as f:
-            for cls, cx, cy, w, h in labels:
-                f.write(f"{cls} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}\n")
-        idx += 1
-        if idx % 25 == 0:
-            print(f"  {idx} imgs, {len(queue)} placements left")
-    print(f"wrote {idx} images")
+    bg_path = os.path.join(TEMPLATE_DIR, "background.png")
+    icon_paths = [p for _, p, _, _ in icons]
+    workers = max(1, args.workers)
+
+    import time as _t
+    t0 = _t.perf_counter()
+    if workers == 1:
+        _init_worker(bg_path, containers, icon_paths)
+        _, n = _gen_chunk((0, queue, args.val_frac, args.max_objs, args.seed))
+        idx = n
+    else:
+        # split the shuffled queue into `workers` contiguous chunks
+        from concurrent.futures import ProcessPoolExecutor
+        k = (len(queue) + workers - 1) // workers
+        chunks = [queue[i:i + k] for i in range(0, len(queue), k)]
+        tasks = [(wid, ch, args.val_frac, args.max_objs, args.seed)
+                 for wid, ch in enumerate(chunks)]
+        idx = 0
+        with ProcessPoolExecutor(max_workers=workers, initializer=_init_worker,
+                                 initargs=(bg_path, containers, icon_paths)) as ex:
+            for wid, n in ex.map(_gen_chunk, tasks):
+                idx += n
+                print(f"  worker {wid}: {n} imgs")
+    dt = _t.perf_counter() - t0
+    print(f"wrote {idx} images in {dt:.1f}s using {workers} workers")
 
     json.dump(names, open(os.path.join(OUT, "classes.json"), "w"))
     with open(os.path.join(OUT, "data.yaml"), "w") as f:
