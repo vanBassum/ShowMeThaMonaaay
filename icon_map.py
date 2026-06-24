@@ -96,8 +96,10 @@ def cmd_show(num):
     print(json.dumps(resolve().get(num, {"error": "no such icon"}), indent=1, ensure_ascii=False))
 
 
-def cmd_review(n=400):
-    """HTML list, most-ambiguous first (low margin / high score), for manual fixing."""
+def cmd_review(n=400, mode="worst"):
+    """HTML list of matches. mode = worst (default, most-ambiguous first, for
+    fixing) | best (most-confident first) | random (representative sample)."""
+    import random as _r
     m = resolve()
     rows = []
     for num, r in m.items():
@@ -107,7 +109,12 @@ def cmd_review(n=400):
             margin = r.get("margin")
             rank = (r.get("score") or 0) - (margin if margin is not None else 0)
         rows.append((rank, num, r))
-    rows.sort(key=lambda x: -x[0])
+    if mode == "random":
+        _r.Random(0).shuffle(rows)
+    elif mode == "best":
+        rows.sort(key=lambda x: x[0])          # low rank = confident
+    else:                                      # worst
+        rows.sort(key=lambda x: -x[0])
     rows = rows[:n]
     cap = (CACHE.replace("\\", "/").rstrip("/") + "/")
     devdir = os.path.abspath(DEVICONS).replace("\\", "/").rstrip("/") + "/"
@@ -129,9 +136,9 @@ def cmd_review(n=400):
             f"<td class='{ 'o' if r.get('source')=='override' else 'a'}'>{r.get('source')}</td></tr>")
     html.append("</table>")
     os.makedirs("out", exist_ok=True)
-    p = os.path.join("out", "icon_review.html")
+    p = os.path.join("out", f"icon_review_{mode}.html")
     open(p, "w", encoding="utf-8").write("\n".join(html))
-    print(f"wrote {p} ({len(rows)} rows, most-ambiguous first)")
+    print(f"wrote {p} ({len(rows)} rows, mode={mode})")
     print(f"fix with: python icon_map.py set <icon#> \"<name or id>\"")
 
 
