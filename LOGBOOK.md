@@ -5,6 +5,29 @@ See `CLAUDE.md` for the format rule.
 
 ---
 
+## 2026-06-24 — Full 3446-class train: parallel gen + speed reality check (`yolo-without-detector`)
+
+**Generator parallelized.** `build_dataset.py` now `--workers` (default all cores)
++ per-worker in-RAM icon cache (decode each icon once, reuse across all its
+images, vs re-`Image.open` per paste). Full build: **3455 images in 54s** on 16
+cores (was ~30 min single-thread).
+
+**Full train attempted, then paused.** `train.py --name full --epochs 80
+--imgsz 1536` (yolo11n, 3446 classes, 3455 imgs). Reality: **~530s/epoch (~9
+min)** => 80 epochs ≈ **11h**, not the ~3h estimated. GPU-bound: 100% util,
+11.7/12.3 GB at imgsz 1536. Levers = imgsz (quadratic) + epochs; data caching
+won't help (compute-bound). First 3 epochs: box_loss 1.72→0.81, cls_loss
+7.12→6.79, mAP still 0 (normal — 3446-class head starts slow; demo took ~10+ ep
+to register). **Decision: stop, run overnight later at full quality.**
+
+**Resume command (dataset already in `data/yolo`, or regenerate in ~1 min):**
+`python build_dataset.py --per-class 35 --max-objs 35 --workers 16 --seed 7`
+then `python train.py --name full --epochs 80 --imgsz 1536`.
+Note: demo plateaued ~ep45/100 with 200 imgs; with 17x more imgs/epoch here,
+convergence likely well before 80 — consider `patience` early-stop to save hours.
+
+---
+
 ## 2026-06-24 — Icon# → item linking (names/prices) + manual-fix layer (`yolo-without-detector`)
 
 **Problem.** The detector outputs `#icon` (cache file number), not a real item.
