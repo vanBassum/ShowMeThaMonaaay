@@ -12,8 +12,8 @@ as-built layout (one deviation from the original plan, noted below).
 ```
 app/          # runtime: used while gaming + manual adjustments
   ocr.py            ocr_identify.py        # live identification (OCR POV)
-  (future) server.py, ui.html             # scan + review/correct UI, manual-link button
-  (future) scan.py                        # YOLO+OCR fusion, link projection (reader)
+  scan.py                                  # screenshot -> YOLO boxes -> OCR-in-box -> ₽/slot
+  server.py         ui.html                # F2 hotkey -> scan; two lists (keep/ditch)
 
 tools/        # one-time / offline
   build_dataset.py   train.py             # synthetic dataset gen + YOLO training

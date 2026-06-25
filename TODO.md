@@ -40,11 +40,17 @@ Living checklist of deferred work. Newest context in LOGBOOK.md.
       independent linker if so).
 
 ## Runtime app (UI)
-- [ ] Scan pipeline: YOLO boxes + OCR names → fuse. OCR only reads inside boxes
-      (kills false matches); per icon-id majority — but links come from non-OCR
-      sources (keep YOLO ⊥ OCR independent).
+- [x] **Scan pipeline** (`app/scan.py`): YOLO boxes + OCR-in-box → catalog match →
+      ₽/slot. OCR only reads inside boxes (kills false matches). 54/82 identified
+      on a real shot.
+- [x] **F2 server + UI** (`app/server.py`, `app/ui.html`): F2 → screenshot → scan →
+      two lists by ₽/slot (keep ↓ / ditch ↑). Saves sessions/<ts>/{raw.png,
+      scan.json, scan.png} for later tooling.
+- [ ] Improve: per-icon-id majority vote across detections; aggregate stacks;
+      show unidentified boxes in the UI (let user name them).
 - [ ] Review/correct UI + manual-link button ("OCR & YOLO agree → confirm" →
-      writes a `manual` link event).
+      writes a `manual` link event). Links still come from non-OCR sources
+      (keep YOLO ⊥ OCR independent).
 
 ## Minor / nice-to-have
 - [ ] Marked overlay: cut each tile's bottom-left category glyph, stamp

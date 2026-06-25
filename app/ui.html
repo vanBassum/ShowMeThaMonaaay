@@ -1,0 +1,82 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>ShowMeThaMonaaay</title>
+<style>
+  :root { --bg:#14160f; --panel:#1d2016; --line:#2c3020; --txt:#cdd1bf; --dim:#7e836c;
+          --keep:#8fd14f; --ditch:#d97a6c; --gold:#d8b15a; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt);
+         font:14px/1.4 "Segoe UI",system-ui,sans-serif; }
+  header { display:flex; align-items:center; gap:16px; padding:10px 16px;
+           border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); }
+  header h1 { font-size:15px; margin:0; color:var(--gold); letter-spacing:.5px; }
+  #status { color:var(--dim); }
+  #status.scanning { color:var(--gold); }
+  #status.error { color:var(--ditch); }
+  button { background:var(--panel); color:var(--txt); border:1px solid var(--line);
+           padding:6px 14px; border-radius:5px; cursor:pointer; }
+  button:hover { border-color:var(--gold); }
+  .kbd { border:1px solid var(--line); border-radius:4px; padding:1px 6px; color:var(--dim); }
+  main { display:grid; grid-template-columns:1fr 1fr; gap:14px; padding:14px; }
+  .col h2 { font-size:13px; text-transform:uppercase; letter-spacing:1px; margin:0 0 8px; }
+  .col.keep h2 { color:var(--keep); }
+  .col.ditch h2 { color:var(--ditch); }
+  table { width:100%; border-collapse:collapse; }
+  td { padding:5px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  .nm { width:100%; overflow:hidden; text-overflow:ellipsis; }
+  .ps { text-align:right; font-variant-numeric:tabular-nums; font-weight:600; }
+  .keep .ps { color:var(--keep); } .ditch .ps { color:var(--ditch); }
+  .sl { text-align:right; color:var(--dim); font-variant-numeric:tabular-nums; }
+  .val { text-align:right; color:var(--dim); font-variant-numeric:tabular-nums; font-size:12px; }
+  .empty { color:var(--dim); padding:20px; text-align:center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ShowMeThaMonaaay</h1>
+  <button onclick="scanNow()">Scan now</button>
+  <span class="kbd">F2</span>
+  <span id="status">idle</span>
+  <span id="counts" style="margin-left:auto;color:var(--dim)"></span>
+</header>
+<main>
+  <div class="col keep"><h2>Keep — ₽/slot ↓</h2><table id="keep"></table></div>
+  <div class="col ditch"><h2>Ditch — ₽/slot ↑</h2><table id="ditch"></table></div>
+</main>
+<script>
+const fmt = n => n.toLocaleString('en-US');
+function row(it){
+  return `<tr><td class="nm" title="${it.name}">${it.short||it.name}</td>`
+       + `<td class="sl">${it.width}×${it.height}</td>`
+       + `<td class="ps">${fmt(it.per_slot)}</td>`
+       + `<td class="val">${fmt(it.value)}</td></tr>`;
+}
+function render(items){
+  const byDesc = [...items].sort((a,b)=>b.per_slot-a.per_slot);
+  const byAsc  = [...items].sort((a,b)=>a.per_slot-b.per_slot);
+  const fill=(id,rows)=>document.getElementById(id).innerHTML =
+      rows.length ? rows.map(row).join('') : '<tr><td class="empty">—</td></tr>';
+  fill('keep', byDesc); fill('ditch', byAsc);
+}
+async function poll(){
+  try {
+    const s = await (await fetch('/api/latest')).json();
+    const st = document.getElementById('status');
+    st.className = s.status;
+    st.textContent = s.status === 'done' ? 'scanned ' + (s.ts||'')
+                   : s.status === 'error' ? 'error: ' + (s.error||'')
+                   : s.status;
+    if (s.result){
+      render(s.result.items);
+      document.getElementById('counts').textContent =
+        `${s.result.identified}/${s.result.detections} identified · ${s.result.unidentified.length} unknown`;
+    }
+  } catch(e){}
+}
+async function scanNow(){ await fetch('/api/scan',{method:'POST'}); }
+setInterval(poll, 1200); poll();
+</script>
+</body>
+</html>
