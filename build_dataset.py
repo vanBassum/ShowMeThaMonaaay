@@ -16,7 +16,12 @@ Output (ultralytics layout):
         classes.json   # class_idx -> icon number (filename stem)
 """
 import os, json, glob, random, argparse, shutil
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
+
+OVERLAYS = "assets/overlays"
+FONT_CANDIDATES = ["C:/Windows/Fonts/arialbd.ttf", "C:/Windows/Fonts/arial.ttf"]
+# overlay probabilities (real items almost always show a name; rest are common)
+P_NAME, P_COUNT, P_FIR, P_MARKED = 0.88, 0.35, 0.30, 0.10
 
 CACHE = os.path.join(
     os.environ["LOCALAPPDATA"], "Temp", "Battlestate Games",
@@ -89,13 +94,17 @@ def fresh_occ(containers):
     return [[[True] * c["cols"] for _ in range(c["rows"])] for c in containers]
 
 
-def build_image(bg, containers, queue, icons_ram, inset=2, max_objs=None):
+def build_image(bg, containers, queue, icons_ram, rng, inset=2, max_objs=None,
+                overlays=True):
     """Pop icons from `queue` and paste until no more fit. Returns (img, labels).
-    `icons_ram` maps path -> preloaded RGBA Image (decoded once, reused)."""
+    `icons_ram` maps path -> preloaded RGBA Image (decoded once, reused).
+    When `overlays`, stamp game-style name/count/FiR/marked so the model learns
+    to see through them (closes the sim-to-real gap)."""
     img = bg.copy()
     occ = fresh_occ(containers)
     labels = []  # (class_idx, cx, cy, w, h) normalized
     W, H = img.size
+    short = _W.get("short", {})
     leftover = []
     while queue:
         if max_objs is not None and len(labels) >= max_objs:
@@ -119,6 +128,10 @@ def build_image(bg, containers, queue, icons_ram, inset=2, max_objs=None):
         ic = icons_ram[path].resize(
             (max(1, round(bw)), max(1, round(bh))), Image.LANCZOS)
         img.paste(ic, (round(x0), round(y0)), ic)
+        if overlays:
+            stem = os.path.splitext(os.path.basename(path))[0]
+            apply_overlays(img, x0, y0, bw, bh, c["cw"], c["ch"],
+                           short.get(stem, ""), rng)
         cx = (x0 + bw / 2) / W
         cy = (y0 + bh / 2) / H
         labels.append((cls_idx, cx, cy, bw / W, bh / H))
@@ -127,10 +140,64 @@ def build_image(bg, containers, queue, icons_ram, inset=2, max_objs=None):
 
 
 # ---- multiprocessing worker (icons decoded once per process, kept in RAM) ----
-_W = {}  # per-process cache: bg, containers, icons_ram
+_W = {}  # per-process cache: bg, containers, icons_ram, overlays, fonts, names
 
 
-def _init_worker(bg_path, containers, icon_paths):
+def _font(size):
+    cache = _W.setdefault("_fonts", {})
+    if size not in cache:
+        f = None
+        for p in FONT_CANDIDATES:
+            try:
+                f = ImageFont.truetype(p, size); break
+            except Exception:
+                pass
+        cache[size] = f or ImageFont.load_default()
+    return cache[size]
+
+
+def apply_overlays(img, x0, y0, bw, bh, cellw, cellh, short, rng):
+    """Stamp the things the game prints on items so the model learns to see
+    THROUGH them: name text (top), stack count (bottom-right), found-in-raid
+    check, and marked border. Box (cell footprint) is unchanged — all within."""
+    d = ImageDraw.Draw(img, "RGBA")
+    # --- name text (top), the biggest sim-to-real factor ---
+    if short and rng.random() < P_NAME:
+        fs = max(9, min(16, int(cellh * 0.20) + rng.randint(-1, 2)))
+        font = _font(fs)
+        txt = short
+        while txt and d.textlength(txt, font=font) > bw - 4 and len(txt) > 1:
+            txt = txt[:-1]
+        tw = d.textlength(txt, font=font)
+        tx = x0 + (bw - tw - 2 if rng.random() < 0.5 else 2)  # top-right or top-left
+        ty = y0 + 1
+        if rng.random() < 0.4:  # translucent name bar behind text (some UI states)
+            d.rectangle([x0, y0, x0 + bw, y0 + fs + 3], fill=(10, 10, 10, 150))
+        col = (235, 235, 225, 255)
+        d.text((tx, ty), txt, font=font, fill=col,
+               stroke_width=2, stroke_fill=(0, 0, 0, 220))
+    # --- stack count (bottom-right) ---
+    if rng.random() < P_COUNT:
+        n = rng.choice([rng.randint(2, 60), rng.randint(2, 60),
+                        rng.choice([100, 120, 200, 350, 1000, 5000, 50000])])
+        fs = max(9, min(15, int(cellh * 0.17)))
+        font = _font(fs)
+        s = str(n)
+        sw = d.textlength(s, font=font)
+        d.text((x0 + bw - sw - 2, y0 + bh - fs - 2), s, font=font,
+               fill=(235, 225, 170, 255), stroke_width=2, stroke_fill=(0, 0, 0, 220))
+    # --- found-in-raid check (bottom-right cell of the item) ---
+    if _W.get("fir") is not None and rng.random() < P_FIR:
+        s = (max(1, round(cellw)), max(1, round(cellh)))
+        ov = _W["fir"].resize(s)
+        img.alpha_composite(ov, (round(x0 + bw - s[0]), round(y0 + bh - s[1])))
+    # --- marked border (wraps the whole item) ---
+    if _W.get("marked") and rng.random() < P_MARKED:
+        ov = rng.choice(_W["marked"]).resize((max(1, round(bw)), max(1, round(bh))))
+        img.alpha_composite(ov, (round(x0), round(y0)))
+
+
+def _init_worker(bg_path, containers, icon_paths, short_names, overlays):
     bg = Image.open(bg_path).convert("RGBA")
     bg.load()
     _W["bg"] = bg
@@ -138,18 +205,29 @@ def _init_worker(bg_path, containers, icon_paths):
     _W["icons"] = {p: Image.open(p).convert("RGBA") for p in icon_paths}
     for im in _W["icons"].values():
         im.load()
+    _W["short"] = short_names or {}
+    _W["overlays"] = overlays
+    _W["fir"] = None
+    _W["marked"] = []
+    if overlays:
+        fp = os.path.join(OVERLAYS, "fir.png")
+        if os.path.exists(fp):
+            _W["fir"] = Image.open(fp).convert("RGBA"); _W["fir"].load()
+        for m in glob.glob(os.path.join(OVERLAYS, "marked_*.png")):
+            im = Image.open(m).convert("RGBA"); im.load(); _W["marked"].append(im)
 
 
 def _gen_chunk(task):
     """Pack one worker's slice of the placement queue into images on disk."""
-    wid, chunk, val_frac, max_objs, seed = task
+    wid, chunk, val_frac, max_objs, seed, overlays = task
     rng = random.Random(seed * 100000 + wid)
     queue = list(chunk)
     bg, containers, icons_ram = _W["bg"], _W["containers"], _W["icons"]
     n = 0
     while queue:
         split = "val" if rng.random() < val_frac else "train"
-        img, labels = build_image(bg, containers, queue, icons_ram, max_objs=max_objs)
+        img, labels = build_image(bg, containers, queue, icons_ram, rng,
+                                  max_objs=max_objs, overlays=overlays)
         if not labels:
             break
         name = f"w{wid:02d}_{n:05d}"
@@ -173,16 +251,28 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2)),
                     help="parallel generation processes (default: all cores)")
+    ap.add_argument("--no-overlays", action="store_true",
+                    help="disable game-style name/count/FiR/marked overlays")
     args = ap.parse_args()
     random.seed(args.seed)
+    overlays = not args.no_overlays
 
     icons = load_icons(args.max_classes, args.seed)
     containers = load_grids()
-    print(f"icons/classes: {len(icons)}  containers: {len(containers)}")
+    print(f"icons/classes: {len(icons)}  containers: {len(containers)}  overlays: {overlays}")
 
     # contiguous class indices; remember original icon number
     cls_of = {icon_no: i for i, (icon_no, *_) in enumerate(icons)}
     names = {i: str(icon_no) for icon_no, i in cls_of.items()}
+
+    # icon# -> short name for the name-text overlay (bootstrap match; ok if rough)
+    short_names = {}
+    try:
+        import icon_map
+        short_names = {k: (v.get("short") or v.get("name") or "")
+                       for k, v in icon_map.resolve().items()}
+    except Exception as e:
+        print("  (no short names for overlays:", e, ")")
 
     # build placement queue: every class repeated per_class times, shuffled
     queue = []
@@ -205,19 +295,20 @@ def main():
     import time as _t
     t0 = _t.perf_counter()
     if workers == 1:
-        _init_worker(bg_path, containers, icon_paths)
-        _, n = _gen_chunk((0, queue, args.val_frac, args.max_objs, args.seed))
+        _init_worker(bg_path, containers, icon_paths, short_names, overlays)
+        _, n = _gen_chunk((0, queue, args.val_frac, args.max_objs, args.seed, overlays))
         idx = n
     else:
         # split the shuffled queue into `workers` contiguous chunks
         from concurrent.futures import ProcessPoolExecutor
         k = (len(queue) + workers - 1) // workers
         chunks = [queue[i:i + k] for i in range(0, len(queue), k)]
-        tasks = [(wid, ch, args.val_frac, args.max_objs, args.seed)
+        tasks = [(wid, ch, args.val_frac, args.max_objs, args.seed, overlays)
                  for wid, ch in enumerate(chunks)]
         idx = 0
         with ProcessPoolExecutor(max_workers=workers, initializer=_init_worker,
-                                 initargs=(bg_path, containers, icon_paths)) as ex:
+                                 initargs=(bg_path, containers, icon_paths,
+                                           short_names, overlays)) as ex:
             for wid, n in ex.map(_gen_chunk, tasks):
                 idx += n
                 print(f"  worker {wid}: {n} imgs")
