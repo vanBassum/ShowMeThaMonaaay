@@ -5,6 +5,22 @@ See `CLAUDE.md` for the format rule.
 
 ---
 
+## 2026-06-25 — Price-basis toggle: 24h avg vs latest flea low (`yolo-without-detector`)
+
+**What.** Header selector in the valuer to pick which flea price drives ₽/slot:
+`avg24hPrice` (24h average) or `lastLowPrice` (latest/most-current low). `value_of`
+is now mode-aware (`PRICE_MODE` + `set_price_mode`), each flea field falling back to the
+other, vendor/base as a floor. `POST /api/price-mode` sets it and re-projects the current
+scan live (no re-scan); state carries `price_mode` so the dropdown reflects the server.
+
+**Why.** 24h avg smooths spikes; latest low is closer to what you'd actually get right
+now. Wanted to flip between them when ranking keep/ditch.
+
+**Result (works).** M4A1: avg24h 55,864 vs latest low 23,000 — value_of returns the
+selected one; bad mode defaults to avg24h.
+
+---
+
 ## 2026-06-25 — Prices auto-cache: 24h TTL refresh in the server (`yolo-without-detector`)
 
 **What.** The server now keeps prices fresh on its own. `tools/fetch_items.py` gained

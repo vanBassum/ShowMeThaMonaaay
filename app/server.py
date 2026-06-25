@@ -32,7 +32,8 @@ SESSIONS = os.path.join(ROOT, "sessions")
 GALLERY = os.path.join(ROOT, "gallery")                # real-crop training data (gitignored)
 
 app = Flask(__name__)
-_state = {"status": "idle", "result": None, "ts": None, "error": None, "prices_age_h": None}
+_state = {"status": "idle", "result": None, "ts": None, "error": None,
+          "prices_age_h": None, "price_mode": scanmod.PRICE_MODE}
 _model = None
 _lock = threading.Lock()
 _cond = threading.Condition()   # wakes SSE subscribers on every state change
@@ -267,6 +268,18 @@ def override():
         res["ts"] = _state["ts"]
         _set(result=res, status="done")
     return jsonify(ok=True)
+
+
+@app.route("/api/price-mode", methods=["POST"])  # pick flea basis: avg24h vs latest low
+def price_mode():
+    mode = scanmod.set_price_mode((request.get_json(force=True) or {}).get("mode"))
+    if _state.get("result"):                          # re-value the current scan, push live
+        res = scanmod.project(scanmod.dets_of(_state["result"]))
+        res["ts"] = _state.get("ts")
+        _set(result=res, price_mode=mode)
+    else:
+        _set(price_mode=mode)
+    return jsonify(ok=True, price_mode=mode)
 
 
 @app.route("/api/refresh-prices", methods=["POST"])   # force a price re-fetch now

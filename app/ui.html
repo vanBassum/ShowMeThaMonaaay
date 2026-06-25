@@ -38,6 +38,8 @@
   tbody tr { cursor:pointer; }
   tbody tr:hover { background:var(--panel); }
   #total { color:var(--gold); font-variant-numeric:tabular-nums; font-weight:600; }
+  #pmode { background:var(--panel); color:var(--txt); border:1px solid var(--line);
+           border-radius:5px; padding:4px 6px; margin-left:4px; }
   #modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.6);
            align-items:flex-start; justify-content:center; z-index:10; }
   #box { background:var(--panel); border:1px solid var(--line); border-radius:8px;
@@ -60,7 +62,13 @@
   <a href="/compare" style="color:var(--gold);text-decoration:none">compare ▸</a>
   <a href="/inspect" style="color:var(--gold);text-decoration:none">inspect ▸</a>
   <span id="status">idle</span>
-  <span id="total" style="margin-left:auto"></span>
+  <label style="margin-left:auto;color:var(--dim)">price
+    <select id="pmode" onchange="setMode(this.value)">
+      <option value="avg24h">24h avg</option>
+      <option value="low">latest low</option>
+    </select>
+  </label>
+  <span id="total"></span>
   <span id="counts" style="color:var(--dim)"></span>
 </header>
 <div id="modal" onclick="if(event.target.id==='modal')closeModal()">
@@ -113,6 +121,7 @@ function applyState(s){
   st.textContent = s.status === 'done' ? 'scanned ' + (s.ts||'')
                  : s.status === 'error' ? 'error: ' + (s.error||'')
                  : s.status + '…';
+  if (s.price_mode) document.getElementById('pmode').value = s.price_mode;
   if (s.result){
     const r = s.result;
     render(r.items, s.ts);
@@ -122,6 +131,8 @@ function applyState(s){
   }
 }
 async function scanNow(){ await fetch('/api/scan',{method:'POST'}); }
+async function setMode(m){ await fetch('/api/price-mode',{method:'POST',
+  headers:{'Content-Type':'application/json'}, body:JSON.stringify({mode:m})}); }
 
 // --- manual correction: click a row -> search -> pick the right item (manual link event) ---
 let correctIcon = null, searchTimer = null;

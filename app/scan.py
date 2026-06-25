@@ -136,13 +136,23 @@ def search_items(q, limit=25):
     return out[:limit]
 
 
+PRICE_MODE = "avg24h"   # "avg24h" = flea 24h average; "low" = latest flea low (most current)
+
+
+def set_price_mode(mode):
+    """Choose which flea price drives valuation/ranking. Returns the mode actually set."""
+    global PRICE_MODE
+    PRICE_MODE = "low" if mode == "low" else "avg24h"
+    return PRICE_MODE
+
+
 def value_of(it):
-    """Best realistic sell value (RUB): flea 24h avg, else best vendor, else base."""
-    cands = [it.get("avg24hPrice") or 0, it.get("lastLowPrice") or 0]
-    for s in it.get("sellFor", []) or []:
-        cands.append(s.get("priceRUB") or 0)
-    cands.append(it.get("basePrice") or 0)
-    return max(cands)
+    """Best realistic sell value (RUB). Flea price per PRICE_MODE (24h avg vs latest low,
+    each falling back to the other if missing), with best vendor / base price as a floor."""
+    avg, low = it.get("avg24hPrice") or 0, it.get("lastLowPrice") or 0
+    flea = (low or avg) if PRICE_MODE == "low" else (avg or low)
+    vendor = max([s.get("priceRUB") or 0 for s in (it.get("sellFor") or [])] + [0])
+    return max(flea, vendor, it.get("basePrice") or 0)
 
 
 def _name_in_box(crop, ocr_scale, name_cutoff):
