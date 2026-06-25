@@ -22,12 +22,17 @@ lives in `shared/models/archive/<name>/` (model card + args + results + classes)
 |---|---|---|---|---|---|
 | **mona1** (root) | full_v2 backbone | ~3476 (deduped) | overlays + rotation + bg + **dup-collapse**; ~25 ep @1536 | **Kaggle** | pending |
 
-### full — experimental pre-history (kept in archive, not the mona line)
-| model | parent | classes | dataset / augs | where | result |
-|---|---|---|---|---|---|
-| full_v1 | yolo11n (scratch) | 3446 | bare icons, 80 ep | local | mAP50 0.923; big sim-to-real gap |
-| full_v2 | full_v1 | 3446 | + overlays, 32 ep | local | mAP50 0.924; real stash 54-56 dets |
-| full_v3 | full_v2 | 3672 (cache grew) | + rotation + bg, 7 ep | local | in progress |
+### barry — the non-deduped lineage (local; archive folders are named `full_v*`)
+"barry" is the friendly lineage name; the on-disk run/archive ids stay `full_v*`
+(renaming live artifacts would break the running train + mona1's warm-start ref).
+| model | a.k.a. | parent | classes | dataset / augs | where | result |
+|---|---|---|---|---|---|---|
+| barry1 | full_v1 | yolo11n (scratch) | 3446 | bare icons, 80 ep | local | mAP50 0.923; big sim-to-real gap |
+| barry1-ft1 | full_v2 | full_v1 | 3446 | + overlays, 32 ep | local | mAP50 0.924; real stash 54-56 dets |
+| **barry2** (current) | full_v3 | full_v2 | 3672 (cache grew) | + rotation + bg, 7 ep | local | in progress |
+
+(barry2 is a new root, not a fine-tune, because the cached-icon vocabulary grew
+3446→3672, which reinitialised the head — same rule that makes mona1 a root.)
 
 ## Why mona1 is a new root
 The exact-duplicate collapse (`build_dataset.py --collapse-dups`, using
