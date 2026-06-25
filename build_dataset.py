@@ -193,18 +193,16 @@ def apply_overlays(img, x0, y0, bw, bh, cellw, cellh, rng):
         sw = d.textlength(s, font=font)
         d.text((x0 + bw - sw - 2, y0 + bh - fs - 2), s, font=font,
                fill=(235, 225, 170, 255), stroke_width=2, stroke_fill=(0, 0, 0, 220))
-    # --- found-in-raid check: SQUARE corner stamp, never stretched to cell aspect ---
+    # --- found-in-raid check (bottom-right). On the now-square grid this is
+    #     square; any residual stretch on odd footprints is just training noise. ---
     if _W.get("fir") is not None and rng.random() < P_FIR:
-        s = max(8, round(min(cellw, cellh)))
-        ov = _W["fir"].resize((s, s))
-        img.alpha_composite(ov, (round(x0 + bw - s), round(y0 + bh - s)))
-    # --- marked: colored border around the whole item (unstretched, any size) ---
-    if rng.random() < P_MARKED:
-        col = rng.choice([(86, 197, 210, 235), (208, 170, 84, 235),
-                          (170, 120, 200, 235)])  # barter / other / task-ish
-        for w_ in range(2):
-            d.rectangle([x0 + w_, y0 + w_, x0 + bw - 1 - w_, y0 + bh - 1 - w_],
-                        outline=col)
+        s = (max(1, round(cellw)), max(1, round(cellh)))
+        ov = _W["fir"].resize(s)
+        img.alpha_composite(ov, (round(x0 + bw - s[0]), round(y0 + bh - s[1])))
+    # --- marked overlay tile (border + category glyph), as the game draws it ---
+    if _W.get("marked") and rng.random() < P_MARKED:
+        ov = rng.choice(_W["marked"]).resize((max(1, round(bw)), max(1, round(bh))))
+        img.alpha_composite(ov, (round(x0), round(y0)))
 
 
 def _init_worker(bg_path, containers, icon_paths, overlays):
@@ -217,10 +215,13 @@ def _init_worker(bg_path, containers, icon_paths, overlays):
         im.load()
     _W["overlays"] = overlays
     _W["fir"] = None
+    _W["marked"] = []
     if overlays:
         fp = os.path.join(OVERLAYS, "fir.png")
         if os.path.exists(fp):
             _W["fir"] = Image.open(fp).convert("RGBA"); _W["fir"].load()
+        for m in glob.glob(os.path.join(OVERLAYS, "marked_*.png")):
+            im = Image.open(m).convert("RGBA"); im.load(); _W["marked"].append(im)
 
 
 def _gen_chunk(task):
