@@ -30,6 +30,9 @@
   .keep .ps { color:var(--keep); } .ditch .ps { color:var(--ditch); }
   .sl { text-align:right; color:var(--dim); font-variant-numeric:tabular-nums; }
   .qty { color:var(--gold); font-size:12px; }
+  td.ic { width:40px; padding:3px 4px; }
+  img.ic { height:34px; width:34px; object-fit:contain; background:#000;
+           border:1px solid var(--line); border-radius:3px; vertical-align:middle; }
   .val { text-align:right; color:var(--dim); font-variant-numeric:tabular-nums; font-size:12px; }
   .empty { color:var(--dim); padding:20px; text-align:center; }
 </style>
@@ -51,7 +54,9 @@
 const fmt = n => n.toLocaleString('en-US');
 function row(it){
   const qty = it.qty > 1 ? ` <span class="qty">×${it.qty}</span>` : '';
-  return `<tr><td class="nm" title="${it.name}">${it.short||it.name}${qty}</td>`
+  const ic = it.id ? `<img class="ic" loading="lazy" src="/api/cat-icon/${it.id}" onerror="this.style.opacity=.15">` : '';
+  return `<tr><td class="ic">${ic}</td>`
+       + `<td class="nm" title="${it.name}">${it.short||it.name}${qty}</td>`
        + `<td class="sl">${it.width}×${it.height}</td>`
        + `<td class="ps">${fmt(it.per_slot)}</td>`
        + `<td class="val">${fmt(it.value)}</td></tr>`;
