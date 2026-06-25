@@ -21,7 +21,7 @@ from PIL import Image, ImageDraw, ImageFont
 OVERLAYS = "assets/overlays"
 FONT_CANDIDATES = ["C:/Windows/Fonts/arialbd.ttf", "C:/Windows/Fonts/arial.ttf"]
 # overlay probabilities (real items almost always show a name; rest are common)
-P_NAME, P_COUNT, P_FIR, P_MARKED = 0.88, 0.35, 0.30, 0.10
+P_NAME, P_COUNT, P_FIR, P_MARKED = 0.95, 0.35, 0.30, 0.10
 
 CACHE = os.path.join(
     os.environ["LOCALAPPDATA"], "Temp", "Battlestate Games",
@@ -153,27 +153,17 @@ def _font(size):
     return cache[size]
 
 
-_NAME_WORDS = ("Bolt Nut Pin Cap Tape Wire Fuel Salt Wax Oil Key Cord Lens Gear "
-               "Ammo Mag Stock Grip Rail Mount Sight Drum Pack Case Kit Bar Can "
-               "Milk Nuts Vodka Wallet Posters Matches Crackers Squash Lion").split()
+import string as _string
+_NAME_CHARS = _string.ascii_letters + _string.digits + "   .-"  # spaces/punct rare
 
 
 def _rand_name(rng):
-    """A random token that just LOOKS like a Tarkov short-name. Content is
-    irrelevant — it only teaches the detector to ignore text stamped on items."""
-    k = rng.random()
-    if k < 0.45:                                   # a word, maybe two
-        s = rng.choice(_NAME_WORDS)
-        if rng.random() < 0.3:
-            s += " " + rng.choice(_NAME_WORDS)
-        return s
-    if k < 0.75:                                   # caliber / model-ish, e.g. 5.45 PS, AK-74
-        a = rng.choice(["5.45", "7.62", "9x19", "AK", "M4", "TP", "SV", "RIS", ".300"])
-        b = rng.choice(["PS", "BP", "74", "200", "98", "II", "Default", "M", "x39"])
-        return f"{a}{rng.choice(['-', ' '])}{b}"
-    # short uppercase abbrev
-    import string as _s
-    return "".join(rng.choice(_s.ascii_uppercase) for _ in range(rng.randint(2, 4)))
+    """RANDOM characters — deliberately NOT real words. Content is irrelevant and
+    randomizing it stops the detector from learning the text instead of the icon;
+    it can only treat the stamped text as ignorable noise."""
+    n = rng.randint(2, 10)
+    s = "".join(rng.choice(_NAME_CHARS) for _ in range(n)).strip()
+    return s or "X"
 
 
 def apply_overlays(img, x0, y0, bw, bh, cellw, cellh, rng):
@@ -183,7 +173,7 @@ def apply_overlays(img, x0, y0, bw, bh, cellw, cellh, rng):
     Text content is RANDOM (we don't know real names; identity comes from the
     icon pixels, names later from OCR)."""
     d = ImageDraw.Draw(img, "RGBA")
-    # --- name text: centered at the very top edge, small, white + thin outline ---
+    # --- name text: top-RIGHT edge, small, white + thin outline (random content) ---
     if rng.random() < P_NAME:
         fs = max(8, min(13, int(cellh * 0.13) + rng.randint(-1, 1)))
         font = _font(fs)
@@ -191,7 +181,7 @@ def apply_overlays(img, x0, y0, bw, bh, cellw, cellh, rng):
         while txt and d.textlength(txt, font=font) > bw - 3 and len(txt) > 1:
             txt = txt[:-1]
         tw = d.textlength(txt, font=font)
-        d.text((x0 + (bw - tw) / 2, y0 + 1), txt, font=font,
+        d.text((x0 + bw - tw - 2, y0 + 1), txt, font=font,
                fill=(238, 238, 234, 255), stroke_width=1, stroke_fill=(0, 0, 0, 210))
     # --- stack count (bottom-right) ---
     if rng.random() < P_COUNT:
