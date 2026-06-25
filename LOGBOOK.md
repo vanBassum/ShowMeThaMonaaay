@@ -5,6 +5,30 @@ See `CLAUDE.md` for the format rule.
 
 ---
 
+## 2026-06-25 — OCR identification validated (icon-id -> real item via printed name) (`yolo-without-detector`)
+
+**Works end-to-end (CPU, alongside GPU training).** Windows OCR (winsdk, no
+Tesseract) reads the short-name the game prints on each item; fuzzy-match to
+`data/items.json` resolves it to a real item + price. game->game => no icon->web
+gap. `ocr.py` (restored) + new `ocr_identify.py` (`ocr_words` -> word boxes in
+image px; `match_name` -> catalog item).
+
+**Results.** Region OCR of a real stash read Matches/RUB/TP-200/IceGreen/GMcount/
+Mustache/PCB/Milk/Crackers/Squash/Caps/Vodka/Wallet/Tushonka/Hawk/Jaeger; 16/16
+fuzzy-matched to the correct catalog item (score 1.00 on shortName). Word boxes
+land at cell-row tops (y ~73,157,241,325; 84px pitch), so each name maps to its
+item box. Misses = stack-count numbers (correctly no match) + a couple
+digit-garbled names (TP-200 -> 'Tp-2..'). Per-cell tiny crops fail; OCR needs a
+region.
+
+**Caveat / lesson.** OCR works on a REGION, not a 18px single-cell strip.
+Plan: OCR whole stash once -> word boxes -> assign each name to the YOLO box
+whose top edge it sits on -> majority-vote name per icon-id across detections ->
+build a confident OCR-derived icon-id->item map (replaces the shaky visual
+matcher). Wire after full_v2 finishes (needs YOLO boxes = GPU).
+
+---
+
 ## 2026-06-25 — Full model trained, but SIM-TO-REAL GAP on real screenshots (`yolo-without-detector`)
 
 **Trained.** Full 3446-class yolo11n, 80 epochs @1536, SGD lr0=0.01 (the lr fix
