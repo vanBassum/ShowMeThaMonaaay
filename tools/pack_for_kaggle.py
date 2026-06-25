@@ -19,7 +19,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build_dataset as b  # for the resolved CACHE path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-UPLOAD = os.path.join(ROOT, "kaggle_upload")
+BUILD = os.path.join(ROOT, "training", "kaggle")
+UPLOAD = os.path.join(BUILD, "upload")
 OWNER = os.environ.get("KAGGLE_USERNAME", "vanbassum")
 SLUG = "showmethamonaaay-inputs"
 WARMSTART = os.path.join(ROOT, "shared", "models", "archive",
@@ -54,7 +55,7 @@ def build():
         print("WARN: warm-start checkpoint missing -> kernel will cold-start")
 
     # offline install wheels (Kaggle kernel internet is off unless phone-verified)
-    wheels = glob.glob(os.path.join(ROOT, "kaggle_wheels", "*.whl"))
+    wheels = glob.glob(os.path.join(BUILD, "wheels", "*.whl"))
     for w in wheels:
         items.append((w, f"wheels/{os.path.basename(w)}"))
     print(f"wheels: {len(wheels)} (offline ultralytics install)")

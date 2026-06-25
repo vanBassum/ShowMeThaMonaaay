@@ -12,7 +12,7 @@ from ultralytics import YOLO
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default="data/yolo/data.yaml")
-    ap.add_argument("--model", default="yolo11n.pt")
+    ap.add_argument("--model", default="training/base/yolo11n.pt")
     ap.add_argument("--epochs", type=int, default=3)   # dev default (synth converges fast)
     ap.add_argument("--imgsz", type=int, default=1280)  # tiny 1x1 icons need resolution
     ap.add_argument("--batch", default=-1)              # -1 = auto-fit VRAM

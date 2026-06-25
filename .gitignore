@@ -24,6 +24,6 @@ __pycache__/
 .claude/
 
 # kaggle upload staging (regenerate: python tools/pack_for_kaggle.py)
-kaggle_pkg/
-kaggle_upload/
-kaggle_wheels/
+
+# all AI training scratch: base weights, dataset, runs, kaggle build
+training/

@@ -15,12 +15,17 @@ dataset is multi-GB; the inputs are ~200MB).
 ## 1. Stage + upload the inputs dataset
 
 ```
-python tools/pack_for_kaggle.py            # -> kaggle_pkg/ (icon cache, shared/, tools/, warm-start .pt)
-cd kaggle_pkg
-kaggle datasets create -p . --dir-mode zip # first time  (private)
+pip download ultralytics ultralytics-thop --no-deps -d training/kaggle/wheels  # one-time (offline install)
+python tools/pack_for_kaggle.py                       # -> training/kaggle/upload/bundle.zip (+ metadata)
+cd training/kaggle/upload
+kaggle datasets create  -p . -m initial               # first time  (private)
 # later refreshes (cache grew, new dup groups, code change):
-kaggle datasets version -p . -m "refresh" --dir-mode zip
+kaggle datasets version -p . -m "refresh"
 ```
+
+We ship ONE `bundle.zip` (not per-folder zips): Kaggle's multi-zip extraction only
+reliably materialised one folder, and kernel internet is off (account not
+phone-verified) so ultralytics installs offline from the bundled wheels.
 
 Dataset id: `vanbassum/showmethamonaaay-inputs` (set in dataset-metadata.json).
 
@@ -39,7 +44,7 @@ dataset. The kernel (`kaggle_train.py`) installs ultralytics, runs
 Watch / fetch:
 ```
 kaggle kernels status vanbassum/mona1-train
-kaggle kernels output vanbassum/mona1-train -p ./mona1_out   # mona1_best.pt, _classes.json, _results.csv
+kaggle kernels output vanbassum/mona1-train -p training/kaggle/out   # mona1_best.pt, _classes.json, _results.csv
 ```
 
 ## 3. Bring mona1 home
