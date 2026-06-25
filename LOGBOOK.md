@@ -5,6 +5,30 @@ See `CLAUDE.md` for the format rule.
 
 ---
 
+## 2026-06-25 — Full model trained, but SIM-TO-REAL GAP on real screenshots (`yolo-without-detector`)
+
+**Trained.** Full 3446-class yolo11n, 80 epochs @1536, SGD lr0=0.01 (the lr fix
+worked). **mAP50 0.917 / best 0.923** on synthetic val. Clean S-curve, no
+overfit. Weights: `runs/detect/full/weights/best.pt`.
+
+**Problem — real screenshots detect almost nothing.** On session `raw.png`s the
+model finds only ~12 items at conf 0.4, ~26 at conf 0.05, on a stash of ~80.
+Detected items are at conf **1.00** (perfect); the rest score ~0 = treated as
+background. Synthetic val 0.92 but real ~poor => textbook sim-to-real gap.
+
+**Cause.** Training pastes BARE cache icons. Real in-game items carry overlays
+the model never saw: stack-count numbers, durability/resource bars, found-in-raid
+corner, selection highlight, price/▶ tags, slight render/lighting diff. Items
+without overlays detect perfectly; items with them are missed.
+
+**Fix (next).** Make synthetic look real: in `build_dataset.py` randomly overlay
+stack counts, durability bars, FiR/marked tags (assets/overlays/ already exist),
+selection highlight, + stronger HSV/brightness jitter. Optionally fine-tune on a
+few hand-labeled real screenshots. Retrain. Detection coverage is the blocker
+before OCR identification is useful (OCR can only ID what YOLO detects).
+
+---
+
 ## 2026-06-24 — Full 3446-class train: parallel gen + speed reality check (`yolo-without-detector`)
 
 **Generator parallelized.** `build_dataset.py` now `--workers` (default all cores)
