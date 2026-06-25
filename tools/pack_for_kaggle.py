@@ -53,6 +53,12 @@ def build():
     else:
         print("WARN: warm-start checkpoint missing -> kernel will cold-start")
 
+    # offline install wheels (Kaggle kernel internet is off unless phone-verified)
+    wheels = glob.glob(os.path.join(ROOT, "kaggle_wheels", "*.whl"))
+    for w in wheels:
+        items.append((w, f"wheels/{os.path.basename(w)}"))
+    print(f"wheels: {len(wheels)} (offline ultralytics install)")
+
     with zipfile.ZipFile(bundle, "w", zipfile.ZIP_DEFLATED) as z:
         for src, arc in items:
             z.write(src, arc)

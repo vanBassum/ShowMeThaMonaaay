@@ -50,7 +50,22 @@ for d in ["shared", "tools"]:
         shutil.copytree(s, os.path.join(WORK, d), dirs_exist_ok=True)
 os.environ["EFT_ICON_CACHE"] = cache
 
-subprocess.run([sys.executable, "-m", "pip", "install", "-q", "ultralytics"], check=True)
+# ultralytics: prefer Kaggle's preinstalled copy; else install OFFLINE from bundled
+# wheels (kernel internet is off unless the account is phone-verified); online last.
+try:
+    import ultralytics  # noqa: F401
+    print("ultralytics preinstalled")
+except ImportError:
+    whl = find("wheels", True, roots)
+    if whl:
+        print("installing ultralytics offline from", whl)
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--no-index",
+                        "--no-deps", "--find-links", whl,
+                        "ultralytics", "ultralytics-thop"], check=True)
+    else:
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "ultralytics"], check=True)
+    import ultralytics  # verify it imports
+    print("ultralytics", ultralytics.__version__)
 
 # 1) generate the deduped dataset (overlays + rotation + bg included)
 subprocess.run([sys.executable, "tools/build_dataset.py", "--collapse-dups",

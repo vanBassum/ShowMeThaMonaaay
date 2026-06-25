@@ -26,3 +26,4 @@ __pycache__/
 # kaggle upload staging (regenerate: python tools/pack_for_kaggle.py)
 kaggle_pkg/
 kaggle_upload/
+kaggle_wheels/
