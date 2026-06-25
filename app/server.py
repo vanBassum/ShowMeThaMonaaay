@@ -80,6 +80,30 @@ def trigger():
     threading.Thread(target=do_scan, daemon=True).start()
 
 
+def save_missed(ts, box, item_id=""):
+    """Save a user-drawn rectangle the detector MISSED as a real training sample.
+    Crop goes to gallery/missed/ with a gallery/missed.jsonl line; optionally labelled
+    with the correct item (else kept unlabelled for later naming). Negatives/misses are
+    as valuable as corrections for improving recall."""
+    raw = os.path.join(SESSIONS, ts or "", "raw.png")
+    if not ts or not os.path.exists(raw):
+        return None
+    x0, y0, x1, y1 = (int(round(v)) for v in box)
+    if x1 - x0 < 4 or y1 - y0 < 4:
+        return None
+    miss = os.path.join(GALLERY, "missed")
+    os.makedirs(miss, exist_ok=True)
+    fn = f"{ts}_{x0}_{y0}_{x1}_{y1}.png"
+    Image.open(raw).convert("RGB").crop((x0, y0, x1, y1)).save(os.path.join(miss, fn))
+    item = scanmod._catalog().get(item_id, {}) if item_id else {}
+    with open(os.path.join(GALLERY, "missed.jsonl"), "a", encoding="utf-8") as f:
+        f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "session": ts,
+                            "crop": f"missed/{fn}", "box": [x0, y0, x1, y1],
+                            "item_id": item_id, "item_name": item.get("name", "")},
+                           ensure_ascii=False) + "\n")
+    return fn
+
+
 def save_correction(ts, icon_id, item_id):
     """When the user manually fixes an icon-id, keep the on-screen crop(s) + the correct
     answer as labeled training data: these are exactly the real in-game samples where
@@ -139,6 +163,17 @@ def compare():
     return send_file(os.path.join(HERE, "compare.html"))
 
 
+@app.route("/inspect")
+def inspect():
+    return send_file(os.path.join(HERE, "inspect.html"))
+
+
+@app.route("/api/raw/<ts>")                      # full screenshot for the inspector
+def raw(ts):
+    p = os.path.join(SESSIONS, ts, "raw.png")
+    return send_file(p) if os.path.exists(p) else abort(404)
+
+
 def _png(img):
     buf = io.BytesIO(); img.save(buf, "PNG"); buf.seek(0)
     return send_file(buf, mimetype="image/png")
@@ -193,6 +228,16 @@ def override():
         res["ts"] = _state["ts"]
         _set(result=res, status="done")
     return jsonify(ok=True)
+
+
+@app.route("/api/missed", methods=["POST"])      # save a drawn rect the detector missed
+def missed():
+    d = request.get_json(force=True)
+    ts, box = d.get("ts") or _state.get("ts"), d.get("box")
+    if not box:
+        abort(400)
+    fn = save_missed(ts, box, d.get("item_id", ""))
+    return jsonify(ok=bool(fn), file=fn)
 
 
 if __name__ == "__main__":

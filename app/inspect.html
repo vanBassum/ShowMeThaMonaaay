@@ -1,0 +1,234 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Inspect — ShowMeThaMonaaay</title>
+<style>
+  :root { --bg:#14160f; --panel:#1d2016; --line:#2c3020; --txt:#cdd1bf; --dim:#7e836c;
+          --gold:#d8b15a; --ok:#8fd14f; --no:#d97a6c; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--txt);
+         font:13px/1.4 "Segoe UI",system-ui,sans-serif; overflow:hidden; }
+  header { display:flex; align-items:center; gap:14px; padding:8px 14px;
+           border-bottom:1px solid var(--line); background:var(--bg); z-index:5; }
+  header h1 { font-size:15px; margin:0; color:var(--gold); }
+  a { color:var(--gold); text-decoration:none; } a:hover { text-decoration:underline; }
+  button { background:var(--panel); color:var(--txt); border:1px solid var(--line);
+           padding:5px 12px; border-radius:5px; cursor:pointer; }
+  button:hover { border-color:var(--gold); }
+  button.on { border-color:var(--no); color:var(--no); }
+  #meta { margin-left:auto; color:var(--dim); }
+  #hint { color:var(--dim); font-size:12px; }
+  #stage { position:absolute; inset:49px 0 0 0; overflow:hidden; cursor:grab;
+           background:#0c0d09 repeating-linear-gradient(45deg,#0c0d09,#0c0d09 10px,#101109 10px,#101109 20px); }
+  #stage.draw { cursor:crosshair; }
+  #stage.panning { cursor:grabbing; }
+  #world { position:absolute; left:0; top:0; transform-origin:0 0; --bw:2; }
+  #world img { display:block; user-select:none; -webkit-user-drag:none; }
+  .box { position:absolute; border:calc(var(--bw)*1px) solid var(--ok);
+         background:rgba(143,209,79,.06); pointer-events:auto; }
+  .box.no { border-color:var(--no); background:rgba(217,122,108,.08); }
+  .box:hover { background:rgba(216,177,90,.18); }
+  #sel { position:absolute; border:calc(var(--bw)*1px) dashed var(--gold);
+         background:rgba(216,177,90,.12); display:none; pointer-events:none; }
+  #legend { position:absolute; left:12px; bottom:12px; background:rgba(20,22,15,.85);
+            border:1px solid var(--line); border-radius:6px; padding:8px 12px; font-size:12px; }
+  #legend b { color:var(--ok); } #legend i { color:var(--no); font-style:normal; }
+  /* label/search modal (shared style with valuer) */
+  #modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.6);
+           align-items:flex-start; justify-content:center; z-index:10; }
+  #boxm { background:var(--panel); border:1px solid var(--line); border-radius:8px;
+          margin-top:7vh; width:min(560px,92vw); max-height:82vh; display:flex; flex-direction:column; }
+  #boxm h3 { margin:0; padding:12px 14px; border-bottom:1px solid var(--line); font-size:14px; color:var(--gold);
+             display:flex; align-items:center; gap:10px; }
+  #preview { height:40px; border:1px solid var(--line); border-radius:3px; background:#000; }
+  #q { margin:12px 14px 6px; padding:9px 12px; background:var(--bg); border:1px solid var(--line);
+       border-radius:6px; color:var(--txt); font-size:14px; }
+  #results { list-style:none; margin:0; padding:0 6px 6px; overflow:auto; }
+  #results li { display:flex; align-items:center; gap:10px; padding:6px 8px; border-radius:6px; cursor:pointer; }
+  #results li:hover { background:var(--bg); }
+  #results img { height:34px; width:34px; object-fit:contain; background:#000; border:1px solid var(--line); border-radius:3px; }
+  #results .sub { color:var(--dim); font-size:12px; overflow:hidden; text-overflow:ellipsis; flex:1; }
+  #results .ps { color:var(--ok); font-variant-numeric:tabular-nums; }
+  #foot { padding:8px 14px; border-top:1px solid var(--line); display:flex; gap:10px; justify-content:flex-end; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Inspect</h1>
+  <a href="/">&larr; valuer</a>
+  <a href="/compare">compare ▸</a>
+  <button id="fit" onclick="fit()">fit</button>
+  <button id="reset" onclick="setT(1,0,0)">100%</button>
+  <button id="drawBtn" onclick="toggleDraw()">✂ mark missed</button>
+  <span id="hint">scroll = zoom · drag = pan · hover a box for its id</span>
+  <span id="meta">press F2 / Scan…</span>
+</header>
+
+<div id="stage">
+  <div id="world">
+    <img id="img" alt="" draggable="false">
+    <div id="sel"></div>
+  </div>
+  <div id="legend"><b>■ detected & identified</b> &nbsp; <i>■ detected, unidentified</i></div>
+</div>
+
+<div id="modal" onclick="if(event.target.id==='modal')closeModal()">
+  <div id="boxm">
+    <h3><img id="preview" src=""> Label the missed item</h3>
+    <input id="q" placeholder="search item name… (or save unlabelled)" oninput="doSearch()" autocomplete="off">
+    <ul id="results"></ul>
+    <div id="foot">
+      <button onclick="closeModal()">cancel</button>
+      <button onclick="saveMissed('')">save unlabelled</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const fmt = n => (n||0).toLocaleString('en-US');
+const esc = s => (s||'').replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
+const stage = document.getElementById('stage'), world = document.getElementById('world'),
+      img = document.getElementById('img'), sel = document.getElementById('sel');
+let scale = 1, tx = 0, ty = 0, ts = null, nat = {w:0, h:0}, drawMode = false;
+
+function applyT(){
+  world.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`;
+  world.style.setProperty('--bw', (1.4/scale).toFixed(3));   // keep borders ~constant on screen
+}
+function setT(s, x, y){ scale = s; tx = x; ty = y; applyT(); }
+function fit(){
+  if (!nat.w) return;
+  const r = stage.getBoundingClientRect();
+  const s = Math.min(r.width/nat.w, r.height/nat.h) * 0.98;
+  setT(s, (r.width - nat.w*s)/2, (r.height - nat.h*s)/2);
+}
+// screen(client) -> image pixel coords
+function toImg(cx, cy){
+  const r = stage.getBoundingClientRect();
+  return { x:(cx - r.left - tx)/scale, y:(cy - r.top - ty)/scale };
+}
+
+// ---- zoom to cursor ----
+stage.addEventListener('wheel', e => {
+  e.preventDefault();
+  const r = stage.getBoundingClientRect(), cx = e.clientX - r.left, cy = e.clientY - r.top;
+  const wx = (cx - tx)/scale, wy = (cy - ty)/scale;
+  const ns = Math.max(0.05, Math.min(20, scale * Math.exp(-e.deltaY * 0.0015)));
+  tx = cx - wx*ns; ty = cy - wy*ns; scale = ns; applyT();
+}, {passive:false});
+
+// ---- pan vs draw ----
+let drag = null;
+stage.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  if (drawMode){
+    const p = toImg(e.clientX, e.clientY);
+    drag = {mode:'draw', x0:p.x, y0:p.y};
+    sel.style.display = 'block';
+    placeSel(p.x, p.y, p.x, p.y);
+  } else {
+    drag = {mode:'pan', sx:e.clientX, sy:e.clientY, tx0:tx, ty0:ty};
+    stage.classList.add('panning');
+  }
+});
+window.addEventListener('mousemove', e => {
+  if (!drag) return;
+  if (drag.mode === 'pan'){ tx = drag.tx0 + (e.clientX-drag.sx); ty = drag.ty0 + (e.clientY-drag.sy); applyT(); }
+  else { const p = toImg(e.clientX, e.clientY); placeSel(drag.x0, drag.y0, p.x, p.y); }
+});
+window.addEventListener('mouseup', e => {
+  if (!drag) return;
+  if (drag.mode === 'draw'){
+    const p = toImg(e.clientX, e.clientY);
+    const b = norm(drag.x0, drag.y0, p.x, p.y);
+    if (b[2]-b[0] >= 5 && b[3]-b[1] >= 5) openLabel(b);
+    else sel.style.display = 'none';
+  }
+  stage.classList.remove('panning');
+  drag = null;
+});
+function norm(x0,y0,x1,y1){ return [Math.min(x0,x1),Math.min(y0,y1),Math.max(x0,x1),Math.max(y0,y1)]; }
+function placeSel(x0,y0,x1,y1){
+  const b = norm(x0,y0,x1,y1);
+  sel.style.left=b[0]+'px'; sel.style.top=b[1]+'px'; sel.style.width=(b[2]-b[0])+'px'; sel.style.height=(b[3]-b[1])+'px';
+}
+function toggleDraw(){
+  drawMode = !drawMode;
+  document.getElementById('drawBtn').classList.toggle('on', drawMode);
+  stage.classList.toggle('draw', drawMode);
+  document.getElementById('hint').textContent = drawMode
+    ? 'drag to box a missed item → then label it (or save unlabelled)'
+    : 'scroll = zoom · drag = pan · hover a box for its id';
+}
+
+// ---- boxes from the live scan ----
+function drawBoxes(r){
+  [...world.querySelectorAll('.box')].forEach(n => n.remove());
+  const add = (d, ok) => {
+    const [x0,y0,x1,y1] = d.box;
+    const el = document.createElement('div');
+    el.className = 'box' + (ok ? '' : ' no');
+    el.style.left=x0+'px'; el.style.top=y0+'px'; el.style.width=(x1-x0)+'px'; el.style.height=(y1-y0)+'px';
+    const lbl = ok ? `${d.short||d.name} · ${fmt(d.per_slot)}/sl` : 'unidentified';
+    el.title = `#${d.icon_id} · ${lbl}` + (d.source?` · ${d.source} ${d.certainty}`:'');
+    world.appendChild(el);
+  };
+  (r.items||[]).forEach(d => add(d, true));
+  (r.unidentified||[]).forEach(d => add(d, false));
+}
+
+// ---- label modal (reuses /api/search + /api/missed) ----
+let pending = null, searchTimer = null;
+function openLabel(box){
+  pending = box;
+  document.getElementById('preview').src = `/api/crop/${ts}?box=${box.map(v=>Math.round(v)).join(',')}`;
+  document.getElementById('q').value = '';
+  document.getElementById('results').innerHTML = '';
+  document.getElementById('modal').style.display = 'flex';
+  document.getElementById('q').focus();
+}
+function closeModal(){ document.getElementById('modal').style.display='none'; sel.style.display='none'; pending=null; }
+function doSearch(){
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(async () => {
+    const q = document.getElementById('q').value.trim();
+    if (!q){ document.getElementById('results').innerHTML=''; return; }
+    let items; try { items = await (await fetch('/api/search?q='+encodeURIComponent(q))).json(); } catch(e){ return; }
+    document.getElementById('results').innerHTML = items.map(it =>
+      `<li onclick="saveMissed('${it.id}')"><img loading="lazy" src="/api/cat-icon/${it.id}" onerror="this.style.opacity=.2">`
+      + `<b>${esc(it.short||it.name)}</b><span class="sub">${esc(it.name)}</span>`
+      + `<span class="ps">${fmt(it.value)}</span></li>`).join('');
+  }, 150);
+}
+async function saveMissed(itemId){
+  if (!pending) return;
+  await fetch('/api/missed', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ts, box: pending.map(v=>Math.round(v)), item_id: itemId})});
+  closeModal();
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+document.getElementById('q').addEventListener('keydown', e => e.stopPropagation());
+
+// ---- live state ----
+function applyState(s){
+  if (s.status && s.status !== 'done')
+    document.getElementById('meta').textContent = s.status + '…';
+  if (!s.result || !s.ts) return;
+  const fresh = s.ts !== ts;
+  if (fresh){
+    ts = s.ts;
+    img.onload = () => { nat = {w:img.naturalWidth, h:img.naturalHeight}; fit(); drawBoxes(s.result); };
+    img.src = `/api/raw/${ts}`;
+  } else {
+    drawBoxes(s.result);   // same shot re-projected (e.g. after a correction)
+  }
+  const r = s.result;
+  document.getElementById('meta').textContent =
+    `${s.ts} · ${r.identified}/${r.detections} detected · ${r.unidentified.length} unknown`;
+}
+const ev = new EventSource('/api/stream');
+ev.onmessage = e => { try { applyState(JSON.parse(e.data)); } catch(_){} };
+</script>
+</body>
+</html>

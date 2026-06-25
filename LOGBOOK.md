@@ -5,6 +5,30 @@ See `CLAUDE.md` for the format rule.
 
 ---
 
+## 2026-06-25 — Inspector view: pan/zoom screenshot + detection overlay + mark-missed (`yolo-without-detector`)
+
+**What.** New third page `/inspect` (`app/inspect.html` + `/api/raw/<ts>`,
+`/api/missed`). Shows the latest session's full screenshot in a pan (drag) / zoom
+(scroll-to-cursor) stage with every detection drawn as an overlay box (green =
+identified w/ short-name + ₽/slot tooltip, red = unidentified). Borders are kept
+~constant on screen by scaling `--bw` with zoom. "✂ mark missed" toggles a draw mode:
+drag a rectangle over something the detector missed → label it via the same
+`/api/search` picker (or "save unlabelled") → crop saved to `gallery/missed/` +
+`gallery/missed.jsonl`. Live via the same SSE stream; F2 updates it instantly.
+
+**Why.** Wanted to visually verify detections at full res and harvest misses as
+training data (recall gaps: grenades, Snickers). Misses are as valuable as the
+correction crops for retraining.
+
+**Result (works).** Routes register; `save_missed()` verified writing crop + labelled
+log line against a real session (test sample cleaned). Linked from valuer + compare
+headers.
+
+**Next.** Fold `gallery/missed/` + `gallery/corrections/` into `build_dataset.py` as
+real positives once enough accumulate.
+
+---
+
 ## 2026-06-25 — Manual corrections also captured as real training crops (`yolo-without-detector`)
 
 **What.** When the user clicks a wrong item in the valuer and picks the correct one,
