@@ -104,7 +104,6 @@ def build_image(bg, containers, queue, icons_ram, rng, inset=2, max_objs=None,
     occ = fresh_occ(containers)
     labels = []  # (class_idx, cx, cy, w, h) normalized
     W, H = img.size
-    short = _W.get("short", {})
     leftover = []
     while queue:
         if max_objs is not None and len(labels) >= max_objs:
@@ -129,9 +128,7 @@ def build_image(bg, containers, queue, icons_ram, rng, inset=2, max_objs=None,
             (max(1, round(bw)), max(1, round(bh))), Image.LANCZOS)
         img.paste(ic, (round(x0), round(y0)), ic)
         if overlays:
-            stem = os.path.splitext(os.path.basename(path))[0]
-            apply_overlays(img, x0, y0, bw, bh, c["cw"], c["ch"],
-                           short.get(stem, ""), rng)
+            apply_overlays(img, x0, y0, bw, bh, c["cw"], c["ch"], rng)
         cx = (x0 + bw / 2) / W
         cy = (y0 + bh / 2) / H
         labels.append((cls_idx, cx, cy, bw / W, bh / H))
@@ -156,26 +153,46 @@ def _font(size):
     return cache[size]
 
 
-def apply_overlays(img, x0, y0, bw, bh, cellw, cellh, short, rng):
+_NAME_WORDS = ("Bolt Nut Pin Cap Tape Wire Fuel Salt Wax Oil Key Cord Lens Gear "
+               "Ammo Mag Stock Grip Rail Mount Sight Drum Pack Case Kit Bar Can "
+               "Milk Nuts Vodka Wallet Posters Matches Crackers Squash Lion").split()
+
+
+def _rand_name(rng):
+    """A random token that just LOOKS like a Tarkov short-name. Content is
+    irrelevant — it only teaches the detector to ignore text stamped on items."""
+    k = rng.random()
+    if k < 0.45:                                   # a word, maybe two
+        s = rng.choice(_NAME_WORDS)
+        if rng.random() < 0.3:
+            s += " " + rng.choice(_NAME_WORDS)
+        return s
+    if k < 0.75:                                   # caliber / model-ish, e.g. 5.45 PS, AK-74
+        a = rng.choice(["5.45", "7.62", "9x19", "AK", "M4", "TP", "SV", "RIS", ".300"])
+        b = rng.choice(["PS", "BP", "74", "200", "98", "II", "Default", "M", "x39"])
+        return f"{a}{rng.choice(['-', ' '])}{b}"
+    # short uppercase abbrev
+    import string as _s
+    return "".join(rng.choice(_s.ascii_uppercase) for _ in range(rng.randint(2, 4)))
+
+
+def apply_overlays(img, x0, y0, bw, bh, cellw, cellh, rng):
     """Stamp the things the game prints on items so the model learns to see
     THROUGH them: name text (top), stack count (bottom-right), found-in-raid
-    check, and marked border. Box (cell footprint) is unchanged — all within."""
+    check, and marked border. Box (cell footprint) is unchanged — all within.
+    Text content is RANDOM (we don't know real names; identity comes from the
+    icon pixels, names later from OCR)."""
     d = ImageDraw.Draw(img, "RGBA")
-    # --- name text (top), the biggest sim-to-real factor ---
-    if short and rng.random() < P_NAME:
-        fs = max(9, min(16, int(cellh * 0.20) + rng.randint(-1, 2)))
+    # --- name text: centered at the very top edge, small, white + thin outline ---
+    if rng.random() < P_NAME:
+        fs = max(8, min(13, int(cellh * 0.13) + rng.randint(-1, 1)))
         font = _font(fs)
-        txt = short
-        while txt and d.textlength(txt, font=font) > bw - 4 and len(txt) > 1:
+        txt = _rand_name(rng)
+        while txt and d.textlength(txt, font=font) > bw - 3 and len(txt) > 1:
             txt = txt[:-1]
         tw = d.textlength(txt, font=font)
-        tx = x0 + (bw - tw - 2 if rng.random() < 0.5 else 2)  # top-right or top-left
-        ty = y0 + 1
-        if rng.random() < 0.4:  # translucent name bar behind text (some UI states)
-            d.rectangle([x0, y0, x0 + bw, y0 + fs + 3], fill=(10, 10, 10, 150))
-        col = (235, 235, 225, 255)
-        d.text((tx, ty), txt, font=font, fill=col,
-               stroke_width=2, stroke_fill=(0, 0, 0, 220))
+        d.text((x0 + (bw - tw) / 2, y0 + 1), txt, font=font,
+               fill=(238, 238, 234, 255), stroke_width=1, stroke_fill=(0, 0, 0, 210))
     # --- stack count (bottom-right) ---
     if rng.random() < P_COUNT:
         n = rng.choice([rng.randint(2, 60), rng.randint(2, 60),
@@ -197,7 +214,7 @@ def apply_overlays(img, x0, y0, bw, bh, cellw, cellh, short, rng):
         img.alpha_composite(ov, (round(x0), round(y0)))
 
 
-def _init_worker(bg_path, containers, icon_paths, short_names, overlays):
+def _init_worker(bg_path, containers, icon_paths, overlays):
     bg = Image.open(bg_path).convert("RGBA")
     bg.load()
     _W["bg"] = bg
@@ -205,7 +222,6 @@ def _init_worker(bg_path, containers, icon_paths, short_names, overlays):
     _W["icons"] = {p: Image.open(p).convert("RGBA") for p in icon_paths}
     for im in _W["icons"].values():
         im.load()
-    _W["short"] = short_names or {}
     _W["overlays"] = overlays
     _W["fir"] = None
     _W["marked"] = []
@@ -265,15 +281,6 @@ def main():
     cls_of = {icon_no: i for i, (icon_no, *_) in enumerate(icons)}
     names = {i: str(icon_no) for icon_no, i in cls_of.items()}
 
-    # icon# -> short name for the name-text overlay (bootstrap match; ok if rough)
-    short_names = {}
-    try:
-        import icon_map
-        short_names = {k: (v.get("short") or v.get("name") or "")
-                       for k, v in icon_map.resolve().items()}
-    except Exception as e:
-        print("  (no short names for overlays:", e, ")")
-
     # build placement queue: every class repeated per_class times, shuffled
     queue = []
     for icon_no, path, cw, ch in icons:
@@ -295,7 +302,7 @@ def main():
     import time as _t
     t0 = _t.perf_counter()
     if workers == 1:
-        _init_worker(bg_path, containers, icon_paths, short_names, overlays)
+        _init_worker(bg_path, containers, icon_paths, overlays)
         _, n = _gen_chunk((0, queue, args.val_frac, args.max_objs, args.seed, overlays))
         idx = n
     else:
@@ -308,7 +315,7 @@ def main():
         idx = 0
         with ProcessPoolExecutor(max_workers=workers, initializer=_init_worker,
                                  initargs=(bg_path, containers, icon_paths,
-                                           short_names, overlays)) as ex:
+                                           overlays)) as ex:
             for wid, n in ex.map(_gen_chunk, tasks):
                 idx += n
                 print(f"  worker {wid}: {n} imgs")
