@@ -451,3 +451,31 @@ the model can't cheat by reading text; that stays OCR's job, kept independent).
 
 Archived to `archive/full_v2_2026-06-25/` (MODEL_CARD + metadata committed; .pt
 gitignored). Next: collapse-dups retrain, then linking system + repo restructure.
+
+---
+
+## 2026-06-25 — barry v3: rotation+bg fix; lineage rename; mona on Kaggle
+
+**Diagnosed the dominant miss cause = ROTATION.** Controlled in-distribution test
+(24 non-square icons, overlays on): barry v2 detected canonical 24/24 but ROTATED
+**0/24** — rotated stash items were invisible (cache stores one orientation; we
+pasted only that). Added to build_dataset.py: 90deg rotation (P=0.5, footprint
+swapped) + colored cell background (P=0.30, real EFT tints). Both cumulative.
+
+**barry v3** = fine-tune of barry v2 (7 ep, imgsz 1536, ~1h). Cache had grown
+3446->3672 (more icons cached in-game) so the head re-initialised; backbone
+transferred. Result: mAP50 0.885; **rotated 0/24 -> 24/24**; real stash detections
+182907 54->82, 183051 56->82, 183733 13->17. The fix works.
+
+**Naming/lineage (MODELS.md):** one model "barry" with progressions v1/v2/v3
+(was full_v1/v2/v3 — archives renamed to barry-v{1,2,3}). A new *name* (mona) is
+only for a different class vocabulary. Active model = barry v3.
+
+**mona v1 (deduped) offloaded to Kaggle.** New model = barry+dedupe: --collapse-dups
+merges 236 byte-identical icons (40 groups) -> nc 3476; merged classes flagged
+ambiguous in classes.json. Trains on Kaggle (free GPU) via a single bundle.zip of
+inputs; ultralytics installs offline from bundled wheels (kernel internet/GPU need
+phone verification — now done). See KAGGLE.md, MODELS.md.
+
+**Repo tidy:** new top-level `training/` for AI scratch (base weights, kaggle build;
+dataset+runs to follow once the VS Code file lock on fresh images clears).

@@ -159,9 +159,9 @@ def main():
             icon_group[str(i)] = gi
     json.dump({"method": label, "groups": groups, "ambiguous": amb,
                "icon_group": icon_group},
-              open("data/icon_dups.json", "w"))
+              open("shared/links/icon_dups.json", "w"))
     print(f"{label}: {len(groups)} groups, {len(amb)}/{total} ambiguous "
-          f"({100*len(amb)/total:.0f}%) -> data/icon_dups.json")
+          f"({100*len(amb)/total:.0f}%) -> shared/links/icon_dups.json")
     if args.html:
         write_html(groups, label, f"out/dups_{label.replace('/','_')}.html")
         print(f"-> out/dups_{label.replace('/','_')}.html")

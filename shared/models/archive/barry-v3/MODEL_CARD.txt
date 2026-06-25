@@ -1,0 +1,45 @@
+MODEL CARD — barry v3 (ShowMeThaMonaaay, branch yolo-without-detector)
+==================================================================
+Date trained : 2026-06-25
+Lineage      : barry (v1 scratch -> v2 +overlays -> v3 +rotation+bg). a.k.a. full_v3.
+File         : best.pt (use this), last.pt (final epoch)
+Base model   : barry v2 (full_v2) best.pt  (fine-tune; head re-init for new nc)
+
+WHAT IT DOES
+  Single-pass detector. Per item: bounding box + class = ICON-ID (EFT icon cache
+  file number, NOT a real item name). icon-id -> item is resolved separately
+  (OCR cross-check + non-OCR link map). Class idx -> icon# in classes.json;
+  best.pt embeds icon# as the class name.
+
+CLASSES
+  nc = 3672 (cache grew from 3446 at v1/v2 as more items were cached in-game).
+  No dedupe collapse here (that's the separate `mona` model).
+
+DATASET (synthetic, regenerable)  *** new vs barry v2 ***
+  build_dataset.py, cumulative augmentations:
+    - overlays: name text / stack count / FiR / marked   (from v2)
+    - 90deg ROTATION (P=0.5, footprint swapped)          NEW in v3
+    - colored cell BACKGROUND (P=0.30, real EFT tints)   NEW in v3
+  ~3891 images, icons on shared/templates/screen1 at grid cells.
+
+TRAINING
+  train.py --model barry-v2/best.pt --name full_v3 --epochs 7 --imgsz 1536
+           --patience 3   (optimizer SGD, lr0 0.01 pinned)
+  Short fine-tune (~1 h). Head re-initialised (nc 3446->3672) so it relearns the
+  classifier; backbone transfers. mAP50 climbed 0.53 -> 0.885 over 7 epochs.
+
+RESULTS (synthetic val)
+  best/final (ep 7): mAP50 0.885  mAP50-95 0.885
+
+*** WHY v3 EXISTS: the rotation fix (the big win) ***
+  Controlled test, 24 non-square icons placed in-distribution (overlays on):
+    barry v2:  canonical 24/24 @0.97   ROTATED 0/24  (rotated items INVISIBLE)
+    barry v3:  canonical 24/24 @0.93   ROTATED 24/24 @0.83
+  Real session screenshots (conf 0.25), detections vs barry v2:
+    182907: 54 -> 82    183051: 56 -> 82    183733: 13 -> 17
+  In Tarkov items are rotated 90deg to pack the stash; the cache stores one
+  orientation, so without rotation aug the model missed every rotated item.
+
+HOW TO USE
+  python tools/predict.py "sessions/<id>/raw.png" --conf 0.25
+  (active model shared/models/best.pt = this checkpoint)

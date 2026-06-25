@@ -18,14 +18,13 @@ lives in `shared/models/archive/<name>/` (model card + args + results + classes)
 
 ## Lineage
 
-### barry — the working model (local; archive/run ids are `full_v*`)
-The friendly name is **barry**; on-disk ids stay `full_v*` (renaming the live run +
-mona's warm-start reference mid-flight would break them).
-| version | id | parent | classes | dataset / augs | result |
-|---|---|---|---|---|---|
-| barry v1 | full_v1 | yolo11n (scratch) | 3446 | bare icons, 80 ep | mAP50 0.923; big sim-to-real gap |
-| barry v2 | full_v2 | barry v1 | 3446 | + overlays, 32 ep | mAP50 0.924; real stash 54-56 dets |
-| **barry v3** (current) | full_v3 | barry v2 | 3672 (cache grew) | + rotation + bg, 7 ep | in progress (local) |
+### barry — the working model (active: barry v3 = `shared/models/best.pt`)
+Archived under `shared/models/archive/barry-v{1,2,3}/`.
+| version | parent | classes | dataset / augs | result |
+|---|---|---|---|---|
+| barry v1 | yolo11n (scratch) | 3446 | bare icons, 80 ep | mAP50 0.923; big sim-to-real gap |
+| barry v2 | barry v1 | 3446 | + overlays, 32 ep | mAP50 0.924; real stash 54-56 dets |
+| **barry v3** (active) | barry v2 | 3672 (cache grew) | + rotation + bg, 7 ep | mAP50 0.885; **rotated 0/24→24/24**; real stash 82/82/17 |
 
 ### mona — the deduped model (new name: different class vocabulary)
 | version | id | parent | classes | dataset / augs | where |

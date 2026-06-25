@@ -24,7 +24,7 @@ UPLOAD = os.path.join(BUILD, "upload")
 OWNER = os.environ.get("KAGGLE_USERNAME", "vanbassum")
 SLUG = "showmethamonaaay-inputs"
 WARMSTART = os.path.join(ROOT, "shared", "models", "archive",
-                         "full_v2_2026-06-25", "best.pt")
+                         "barry-v2", "best.pt")
 
 
 def build():

@@ -15,7 +15,7 @@ CLI:
 import os, json, sys
 
 AUTO = "data/icon_item_map.json"
-OVERRIDES = "icon_overrides.json"
+OVERRIDES = "shared/links/icon_overrides.json"
 ITEMS = "data/items.json"
 DEVICONS = "data/icons"
 CACHE = os.path.join(os.environ["LOCALAPPDATA"], "Temp", "Battlestate Games",

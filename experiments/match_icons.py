@@ -106,7 +106,7 @@ def main():
                        f"#{num} -> {it['name'][:34]}  (d{score:.0f})", fill=(0, 255, 0))
             else:
                 d.text((x + 2, y + cell + 2), f"#{num} no cand", fill=(255, 80, 80))
-        out = os.path.join(os.path.dirname(__file__), "out")
+        out = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "out")
         os.makedirs(out, exist_ok=True)
         path = os.path.join(out, "match_eval.png")
         sheet.save(path)

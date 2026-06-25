@@ -15,7 +15,7 @@ import concurrent.futures
 
 API = "https://api.tarkov.dev/graphql"
 UA = "Mozilla/5.0 tarkov-inv-tool"
-DATA = os.path.join(os.path.dirname(__file__), "data")
+DATA = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 ICONS = os.path.join(DATA, "icons")
 
 # avg24hPrice = flea avg; basePrice = trader base; sellFor = best sell option per vendor

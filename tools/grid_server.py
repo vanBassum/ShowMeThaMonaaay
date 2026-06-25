@@ -10,14 +10,14 @@ Edit either a TEMPLATE (templates/<name>/) or a capture SESSION
 import os, json
 from flask import Flask, request, jsonify, send_file
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # repo root (tools/ -> ..)
 app = Flask(__name__)
 
 
 def _src(sid):
     """Map an editor 'session' id to (image_path, grids_json_path)."""
     if sid and sid.startswith("tpl:"):
-        d = os.path.join(ROOT, "templates", sid[4:])
+        d = os.path.join(ROOT, "shared", "templates", sid[4:])
         return os.path.join(d, "background.png"), os.path.join(d, "grids.json")
     d = os.path.join(ROOT, "sessions", sid or "")
     return os.path.join(d, "raw.png"), os.path.join(d, "grids.json")
@@ -25,7 +25,7 @@ def _src(sid):
 
 def _list():
     out = []
-    tdir = os.path.join(ROOT, "templates")
+    tdir = os.path.join(ROOT, "shared", "templates")
     if os.path.isdir(tdir):
         for n in sorted(os.listdir(tdir)):
             if os.path.exists(os.path.join(tdir, n, "background.png")):
