@@ -18,16 +18,20 @@ Output (ultralytics layout):
 import os, json, glob, random, argparse, shutil
 from PIL import Image, ImageDraw, ImageFont
 
-OVERLAYS = "assets/overlays"
+OVERLAYS = "shared/assets/overlays"
 FONT_CANDIDATES = ["C:/Windows/Fonts/arialbd.ttf", "C:/Windows/Fonts/arial.ttf"]
 # overlay probabilities (real items almost always show a name; rest are common)
 P_NAME, P_COUNT, P_FIR, P_MARKED = 0.95, 0.35, 0.30, 0.10
+# In-stash items are frequently rotated 90 deg to pack the grid. The cache stores
+# ONE orientation, so without this the model never sees rotated items and misses
+# them entirely. Rotate 90 deg with this prob (same class, footprint swapped cw<->ch).
+P_ROT90 = 0.5
 
 CACHE = os.path.join(
     os.environ["LOCALAPPDATA"], "Temp", "Battlestate Games",
     "EscapeFromTarkov", "Icon Cache", "live",
 )
-TEMPLATE_DIR = "templates/screen1"
+TEMPLATE_DIR = "shared/templates/screen1"
 OUT = "data/yolo"
 
 
@@ -110,6 +114,9 @@ def build_image(bg, containers, queue, icons_ram, rng, inset=2, max_objs=None,
             break
         item = queue.pop()
         cls_idx, path, cw, ch = item
+        rot = rng.random() < P_ROT90      # rotate this instance 90 deg?
+        if rot:
+            cw, ch = ch, cw               # footprint swaps when rotated
         spot = place_into(containers, cw, ch, occ)
         if spot is None:
             leftover.append(item)
@@ -124,7 +131,10 @@ def build_image(bg, containers, queue, icons_ram, rng, inset=2, max_objs=None,
         y0 = c["y"] + row * c["ch"] + inset
         bw = cw * c["cw"] - 2 * inset
         bh = ch * c["ch"] - 2 * inset
-        ic = icons_ram[path].resize(
+        ic = icons_ram[path]
+        if rot:
+            ic = ic.transpose(Image.ROTATE_90)
+        ic = ic.resize(
             (max(1, round(bw)), max(1, round(bh))), Image.LANCZOS)
         img.paste(ic, (round(x0), round(y0)), ic)
         if overlays:
