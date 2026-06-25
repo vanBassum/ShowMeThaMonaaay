@@ -15,7 +15,7 @@ Methods (pick with --method, tune with --size/--dist):
   python icon_dups.py --compare              # stats table across methods
   python icon_dups.py --method phash --size 16 --dist 4 --html   # save + page
 """
-import os, json, glob, argparse, hashlib
+import os, json, glob, argparse, hashlib, shutil
 from collections import defaultdict
 from PIL import Image
 import imagehash
@@ -100,7 +100,12 @@ def cluster(method, size, dist):
 
 
 def write_html(groups, label, path, maxg=120):
-    cap = CACHE.replace("\\", "/").rstrip("/") + "/"
+    """Copy the shown icons into out/icons/ and reference them with RELATIVE
+    links, so a Live Preview / static HTTP server (serving the workspace) can
+    load them (file:// to AppData won't work there)."""
+    outdir = os.path.dirname(path) or "."
+    icondir = os.path.join(outdir, "icons")
+    os.makedirs(icondir, exist_ok=True)
     h = ["<meta charset=utf8><style>body{background:#1a1a1a;color:#ddd;"
          "font:13px sans-serif} .g{display:flex;flex-wrap:wrap;gap:4px;align-items:center;"
          "padding:6px;border-bottom:1px solid #333} .g b{width:70px;color:#8af}"
@@ -110,12 +115,16 @@ def write_html(groups, label, path, maxg=120):
     for g in groups[:maxg]:
         h.append(f"<div class='g'><b>{len(g)}x</b>")
         for i in g[:24]:
-            h.append(f"<figure><img src='file:///{cap}{i}.png'>"
+            dst = os.path.join(icondir, f"{i}.png")
+            if not os.path.exists(dst):
+                src = os.path.join(CACHE, f"{i}.png")
+                if os.path.exists(src):
+                    shutil.copy(src, dst)
+            h.append(f"<figure><img src='icons/{i}.png'>"
                      f"<figcaption>{i}</figcaption></figure>")
         if len(g) > 24:
             h.append(f"<span>+{len(g)-24} more</span>")
         h.append("</div>")
-    os.makedirs("out", exist_ok=True)
     open(path, "w", encoding="utf-8").write("\n".join(h))
 
 
