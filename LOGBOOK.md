@@ -5,6 +5,28 @@ See `CLAUDE.md` for the format rule.
 
 ---
 
+## 2026-06-25 — Manual corrections also captured as real training crops (`yolo-without-detector`)
+
+**What.** When the user clicks a wrong item in the valuer and picks the correct one,
+the override now does two things: (1) appends the `manual` link event to
+`links.jsonl` (as before), and (2) `save_correction()` crops the on-screen box(es)
+for that icon-id out of `sessions/<ts>/raw.png` and writes them to `gallery/crops/`
+plus a `gallery/corrections.jsonl` log line `{ts, session, crop, box, icon_id,
+item_id, item_name}`.
+
+**Why.** These are precisely the real in-game samples where YOLO's icon-id was wrong
+— gold for retraining / fixing the link map. `gallery/` was already reserved (and
+gitignored) for "accumulated real-crop gallery (game-sourced training data)".
+
+**Result (works).** Simulated correction against a saved session wrote the crop +
+labelled log line (verified, then cleaned the test sample). No re-capture/OCR — runs
+inside the existing `/api/override` path. Local only; private (gitignored).
+
+**Next.** Once a handful accumulate, fold them into `build_dataset.py` (real crops as
+extra positives for the right class) and/or as link-map ground truth.
+
+---
+
 ## 2026-06-25 — OCR identification validated (icon-id -> real item via printed name) (`yolo-without-detector`)
 
 **Works end-to-end (CPU, alongside GPU training).** Windows OCR (winsdk, no

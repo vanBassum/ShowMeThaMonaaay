@@ -26,6 +26,7 @@ CACHE = os.environ.get("EFT_ICON_CACHE") or os.path.join(
     "EscapeFromTarkov", "Icon Cache", "live")          # YOLO icon-id -> <id>.png
 CATALOG_ICONS = os.path.join(ROOT, "data", "icons")    # OCR item-id -> <id>.webp
 SESSIONS = os.path.join(ROOT, "sessions")
+GALLERY = os.path.join(ROOT, "gallery")                # real-crop training data (gitignored)
 
 app = Flask(__name__)
 _state = {"status": "idle", "result": None, "ts": None, "error": None}
@@ -77,6 +78,32 @@ def do_scan():
 
 def trigger():
     threading.Thread(target=do_scan, daemon=True).start()
+
+
+def save_correction(ts, icon_id, item_id):
+    """When the user manually fixes an icon-id, keep the on-screen crop(s) + the correct
+    answer as labeled training data: these are exactly the real in-game samples where
+    YOLO's id was wrong, so they're gold for retraining / fixing the link map later.
+    Crops + a log line go to gallery/ (gitignored, game-sourced)."""
+    res, raw = _state.get("result"), os.path.join(SESSIONS, ts or "", "raw.png")
+    if not res or not ts or not os.path.exists(raw):
+        return
+    boxes = [d["box"] for d in res["items"] + res["unidentified"]
+             if str(d["icon_id"]) == str(icon_id)]
+    if not boxes:
+        return
+    item = scanmod._catalog().get(item_id, {})
+    crops = os.path.join(GALLERY, "crops")
+    os.makedirs(crops, exist_ok=True)
+    img = Image.open(raw).convert("RGB")
+    with open(os.path.join(GALLERY, "corrections.jsonl"), "a", encoding="utf-8") as f:
+        for i, box in enumerate(boxes):
+            fn = f"{ts}_{icon_id}_{i}.png"
+            img.crop(tuple(box)).save(os.path.join(crops, fn))
+            f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "session": ts,
+                                "crop": f"crops/{fn}", "box": box, "icon_id": str(icon_id),
+                                "item_id": item_id, "item_name": item.get("name", "")},
+                               ensure_ascii=False) + "\n")
 
 
 @app.route("/")
@@ -159,6 +186,7 @@ def override():
     if not icon_id or not item_id:
         abort(400)
     scanmod.add_manual_link(icon_id, item_id, note=d.get("note", ""))
+    save_correction(_state.get("ts"), icon_id, item_id)   # keep crop + right answer for training
     # re-project the current scan with the new link (no re-capture / re-OCR)
     if _state.get("result"):
         res = scanmod.project(scanmod.dets_of(_state["result"]))
