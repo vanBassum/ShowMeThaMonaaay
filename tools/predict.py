@@ -2,8 +2,8 @@
 predict.py — run the single-pass item detector on a screenshot and save an
 annotated copy (box + icon identity + confidence).
 
-    python predict.py "Examples/screen 1.png"
-    python predict.py img.png --model runs/detect/demo100/weights/best.pt --conf 0.4
+    python tools/predict.py "sessions/<id>/raw.png" --conf 0.25
+    python tools/predict.py img.png --model shared/models/archive/full_v2_2026-06-25/best.pt
 """
 import argparse, os
 from ultralytics import YOLO
@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("image")
-    ap.add_argument("--model", default="runs/detect/demo100/weights/best.pt")
+    ap.add_argument("--model", default="shared/models/best.pt")
     ap.add_argument("--conf", type=float, default=0.4)
     ap.add_argument("--imgsz", type=int, default=1536)
     ap.add_argument("--out", default=None)

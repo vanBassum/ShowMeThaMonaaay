@@ -1,7 +1,11 @@
-# Repo structure (planned)
+# Repo structure
 
-Decided 2026-06-25. **Execute after `full_v2` training finishes** (see caveats
-at the bottom). This is the target layout for the `yolo-without-detector` branch.
+**Executed 2026-06-25** on the `yolo-without-detector` branch. This is the
+as-built layout (one deviation from the original plan, noted below).
+
+> **Run scripts from the repo root** (e.g. `python tools/predict.py ...`).
+> Sources moved into folders but resolve `data/`, `out/`, `runs/`, `sessions/`
+> relative to CWD; `__file__`-anchored paths were re-anchored to the repo root.
 
 ## Layout
 
@@ -18,12 +22,15 @@ tools/        # one-time / offline
   icon_dups.py                            # compute the ambiguous-icon (exact-dup) set
   predict.py                              # offline inference / debug
 
-shared/       # artifacts both sides use
+shared/       # curated inputs both sides use (tracked)
   models/           best.pt (active) + archive/        # model in use + history
-  catalog/          items.json, icons/                 # tarkov.dev data
-  links/            icon_dups.json, links.jsonl, overrides   # the "database"
-  templates/        background.png, grids.json
+  links/            icon_dups.json, icon_overrides.json (+ future links.jsonl)  # the "database"
+  templates/screen1/  background.png, grids.json
   assets/overlays/
+
+data/         # DEVIATION: regenerable catalog cache stays here (gitignored)
+  items.json, icons/   # tarkov.dev catalog — regenerate: python tools/fetch_items.py
+  yolo/                # generated training dataset (build_dataset.py)
 
 experiments/  # throwaway exploration ("tests")
   match_icons.py + icon_map.py review      # the visual-match attempt (demoted)
@@ -58,11 +65,13 @@ concurrent/transactional writes or real querying.
 - Ambiguous icons = the **exact** (byte-identical) duplicate groups in
   `icon_dups.json` (236 icons / 6%); those need OCR/manual. Everything else: YOLO.
 
-## Execution caveats (training is running)
+## As-built notes
 
-- Safe to move anytime: the `.py` source (running process already loaded it).
-- **Do NOT move while training:** `data/yolo/` (dataloader reads it each epoch)
-  and `runs/` (training writes; monitor reads `results.csv`).
-- Moves into packages need import fixups (future `server.py` importing `ocr`,
-  etc.) — do in one pass with a smoke test.
-- `data/`, `runs/`, `out/`, `sessions/`, `*.pt` are gitignored build/artifact dirs.
+- Active model: `shared/models/best.pt` = a copy of `full_v2/best.pt`
+  (gitignored, like all `*.pt`). `predict.py` defaults to it.
+- `icon_dups.json` is now tracked under `shared/links/` (moved out of gitignored
+  `data/`) — it's part of the linking "database", not a throwaway artifact.
+- Path handling: `data/`, `out/`, `runs/`, `sessions/` resolve relative to CWD,
+  so **run scripts from the repo root**. `fetch_items.py`, `grid_server.py`,
+  `match_icons.py` re-anchor `__file__` to the repo root for their fixed dirs.
+- Still gitignored build/artifact dirs: `data/`, `runs/`, `out/`, `sessions/`, `*.pt`.
