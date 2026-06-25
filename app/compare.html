@@ -1,0 +1,90 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Compare methods — ShowMeThaMonaaay</title>
+<style>
+  :root { --bg:#14160f; --panel:#1d2016; --line:#2c3020; --txt:#cdd1bf; --dim:#7e836c;
+          --gold:#d8b15a; --ok:#8fd14f; --no:#d97a6c; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt);
+         font:13px/1.4 "Segoe UI",system-ui,sans-serif; }
+  header { display:flex; align-items:center; gap:16px; padding:10px 16px;
+           border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); z-index:1; }
+  header h1 { font-size:15px; margin:0; color:var(--gold); }
+  a { color:var(--gold); text-decoration:none; } a:hover { text-decoration:underline; }
+  #meta { margin-left:auto; color:var(--dim); }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; color:var(--dim); font-weight:600; text-transform:uppercase;
+       font-size:11px; letter-spacing:1px; padding:8px; border-bottom:1px solid var(--line); position:sticky; top:43px; background:var(--bg); }
+  td { padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  img.icon { height:56px; background:#000; border:1px solid var(--line); border-radius:3px; vertical-align:middle; }
+  img.crop { height:56px; background:#000; border:1px solid var(--line); border-radius:3px; }
+  .cell { display:flex; align-items:center; gap:8px; }
+  .id { color:var(--dim); font-variant-numeric:tabular-nums; }
+  .name { font-weight:600; } .name.no { color:var(--no); font-weight:400; font-style:italic; }
+  .sub { color:var(--dim); font-size:11px; }
+  .score { color:var(--ok); font-variant-numeric:tabular-nums; }
+  .future { color:var(--dim); font-style:italic; }
+  tr.unid { opacity:.75; }
+  .empty { color:var(--dim); padding:30px; text-align:center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Compare methods</h1>
+  <a href="/">&larr; valuer</a>
+  <span id="meta"></span>
+</header>
+<table>
+  <thead><tr>
+    <th>On screen</th>
+    <th>YOLO (icon-id)</th>
+    <th>OCR (name → catalog)</th>
+    <th>Grid/link <span style="text-transform:none">(todo)</span></th>
+    <th>conf</th>
+  </tr></thead>
+  <tbody id="rows"><tr><td colspan="5" class="empty">Press F2 / Scan to populate…</td></tr></tbody>
+</table>
+<script>
+let lastTs = null;
+const esc = s => (s||'').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+
+function row(ts, d, identified){
+  const crop = `<img class="crop" loading="lazy" src="/api/crop/${ts}?box=${d.box.join(',')}">`;
+  const yolo = `<div class="cell"><img class="icon" loading="lazy" src="/api/yolo-icon/${d.icon_id}" onerror="this.style.opacity=.2">`
+             + `<span class="id">#${d.icon_id}</span></div>`;
+  let ocr;
+  if (identified){
+    ocr = `<div class="cell"><img class="icon" loading="lazy" src="/api/cat-icon/${d.id}" onerror="this.style.opacity=.2">`
+        + `<div><div class="name">${esc(d.short||d.name)}</div>`
+        + `<div class="sub">${esc(d.name)}</div>`
+        + `<div class="sub">read: “${esc(d.ocr)}” · <span class="score">${d.ocr_score}</span></div></div></div>`;
+  } else {
+    ocr = `<div><span class="name no">no match</span>`
+        + `<div class="sub">read: “${esc(d.ocr)}”</div></div>`;
+  }
+  return `<tr class="${identified?'':'unid'}"><td>${crop}</td><td>${yolo}</td>`
+       + `<td>${ocr}</td><td class="future">—</td>`
+       + `<td class="id">${d.det_conf}</td></tr>`;
+}
+
+async function poll(){
+  let s; try { s = await (await fetch('/api/latest')).json(); } catch(e){ return; }
+  if (!s.result || s.ts === lastTs) {
+    if (s.status && s.status!=='done') document.getElementById('meta').textContent = s.status;
+    return;
+  }
+  lastTs = s.ts;
+  const r = s.result;
+  const rows = r.items.map(d => row(s.ts, d, true))
+             .concat(r.unidentified.map(d => row(s.ts, d, false)));
+  document.getElementById('rows').innerHTML = rows.join('') ||
+    '<tr><td colspan="5" class="empty">no detections</td></tr>';
+  document.getElementById('meta').textContent =
+    `${s.ts} · ${r.identified}/${r.detections} identified · ${r.unidentified.length} unknown`;
+}
+setInterval(poll, 1500); poll();
+</script>
+</body>
+</html>

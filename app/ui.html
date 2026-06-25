@@ -29,6 +29,7 @@
   .ps { text-align:right; font-variant-numeric:tabular-nums; font-weight:600; }
   .keep .ps { color:var(--keep); } .ditch .ps { color:var(--ditch); }
   .sl { text-align:right; color:var(--dim); font-variant-numeric:tabular-nums; }
+  .qty { color:var(--gold); font-size:12px; }
   .val { text-align:right; color:var(--dim); font-variant-numeric:tabular-nums; font-size:12px; }
   .empty { color:var(--dim); padding:20px; text-align:center; }
 </style>
@@ -38,6 +39,7 @@
   <h1>ShowMeThaMonaaay</h1>
   <button onclick="scanNow()">Scan now</button>
   <span class="kbd">F2</span>
+  <a href="/compare" style="color:var(--gold);text-decoration:none">compare ▸</a>
   <span id="status">idle</span>
   <span id="counts" style="margin-left:auto;color:var(--dim)"></span>
 </header>
@@ -48,14 +50,26 @@
 <script>
 const fmt = n => n.toLocaleString('en-US');
 function row(it){
-  return `<tr><td class="nm" title="${it.name}">${it.short||it.name}</td>`
+  const qty = it.qty > 1 ? ` <span class="qty">×${it.qty}</span>` : '';
+  return `<tr><td class="nm" title="${it.name}">${it.short||it.name}${qty}</td>`
        + `<td class="sl">${it.width}×${it.height}</td>`
        + `<td class="ps">${fmt(it.per_slot)}</td>`
        + `<td class="val">${fmt(it.value)}</td></tr>`;
 }
+function dedup(items){
+  // collapse identical items into one row with a count (Tushonka ×3)
+  const map = new Map();
+  for (const it of items){
+    const k = it.id || it.name;
+    if (map.has(k)) map.get(k).qty++;
+    else map.set(k, {...it, qty:1});
+  }
+  return [...map.values()];
+}
 function render(items){
-  const byDesc = [...items].sort((a,b)=>b.per_slot-a.per_slot);
-  const byAsc  = [...items].sort((a,b)=>a.per_slot-b.per_slot);
+  const uniq = dedup(items);
+  const byDesc = [...uniq].sort((a,b)=>b.per_slot-a.per_slot);
+  const byAsc  = [...uniq].sort((a,b)=>a.per_slot-b.per_slot);
   const fill=(id,rows)=>document.getElementById(id).innerHTML =
       rows.length ? rows.map(row).join('') : '<tr><td class="empty">—</td></tr>';
   fill('keep', byDesc); fill('ditch', byAsc);

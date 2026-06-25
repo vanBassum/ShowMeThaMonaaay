@@ -65,7 +65,7 @@ def scan(pil, model, conf=0.25, imgsz=1536, ocr_scale=6, name_cutoff=0.6):
         if it:
             w, h = it.get("width", 1) or 1, it.get("height", 1) or 1
             val = value_of(it)
-            rec.update({"name": it["name"], "short": it.get("shortName", ""),
+            rec.update({"id": it.get("id", ""), "name": it["name"], "short": it.get("shortName", ""),
                         "value": val, "width": w, "height": h, "slots": w * h,
                         "per_slot": round(val / (w * h)), "ocr_score": round(sc, 2)})
             items.append(rec)

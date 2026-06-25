@@ -9,9 +9,9 @@ Notes:
   (exclusive fullscreen can grab black).
 - Model + OCR are loaded once; a scan takes a few seconds (OCR per detected box).
 """
-import os, sys, json, time, threading
-from flask import Flask, jsonify, send_file
-from PIL import ImageGrab
+import os, sys, io, json, time, threading
+from flask import Flask, jsonify, send_file, request, abort
+from PIL import ImageGrab, Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import scan as scanmod  # noqa: E402
@@ -19,6 +19,13 @@ import scan as scanmod  # noqa: E402
 MODEL_PATH = scanmod.DEFAULT_MODEL
 PORT = 5001
 HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)                            # repo root (anchor file paths here)
+# icon sources for the compare page (absolute — send_file needs absolute paths)
+CACHE = os.environ.get("EFT_ICON_CACHE") or os.path.join(
+    os.environ.get("LOCALAPPDATA", ""), "Temp", "Battlestate Games",
+    "EscapeFromTarkov", "Icon Cache", "live")          # YOLO icon-id -> <id>.png
+CATALOG_ICONS = os.path.join(ROOT, "data", "icons")    # OCR item-id -> <id>.webp
+SESSIONS = os.path.join(ROOT, "sessions")
 
 app = Flask(__name__)
 _state = {"status": "idle", "result": None, "ts": None, "error": None}
@@ -41,7 +48,7 @@ def do_scan():
         _state.update(status="capturing", error=None)
         img = ImageGrab.grab().convert("RGB")
         ts = time.strftime("%Y%m%d-%H%M%S")
-        sess = os.path.join("sessions", ts)
+        sess = os.path.join(SESSIONS, ts)
         os.makedirs(sess, exist_ok=True)
         img.save(os.path.join(sess, "raw.png"))
         _state.update(status="scanning")
@@ -69,6 +76,40 @@ def index():
 @app.route("/api/latest")
 def latest():
     return jsonify(_state)
+
+
+@app.route("/compare")
+def compare():
+    return send_file(os.path.join(HERE, "compare.html"))
+
+
+def _png(img):
+    buf = io.BytesIO(); img.save(buf, "PNG"); buf.seek(0)
+    return send_file(buf, mimetype="image/png")
+
+
+@app.route("/api/yolo-icon/<icon_id>")          # what YOLO saw (cache icon)
+def yolo_icon(icon_id):
+    p = os.path.join(CACHE, f"{icon_id}.png")
+    return send_file(p) if os.path.exists(p) else abort(404)
+
+
+@app.route("/api/cat-icon/<item_id>")           # what OCR matched (catalog icon)
+def cat_icon(item_id):
+    p = os.path.join(CATALOG_ICONS, f"{item_id}.webp")
+    return send_file(p) if os.path.exists(p) else abort(404)
+
+
+@app.route("/api/crop/<ts>")                     # on-screen crop, box=x0,y0,x1,y1
+def crop(ts):
+    raw = os.path.join(SESSIONS, ts, "raw.png")
+    if not os.path.exists(raw):
+        abort(404)
+    try:
+        box = tuple(int(v) for v in request.args["box"].split(","))
+    except Exception:
+        abort(400)
+    return _png(Image.open(raw).convert("RGB").crop(box))
 
 
 @app.route("/api/scan", methods=["POST"])
