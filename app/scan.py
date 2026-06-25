@@ -14,13 +14,44 @@ CLI test (no F2 / capture needed):
   python app/scan.py sessions/20260623-182907/raw.png
   python app/scan.py shot.png --model shared/models/best.pt --conf 0.25
 """
-import os, sys, argparse
+import os, sys, json, argparse
 from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # for sibling imports
 from ocr_identify import ocr_words, match_name  # noqa: E402
 
 DEFAULT_MODEL = "shared/models/best.pt"   # barry v3 (active)
+
+# Identity sources. YOLO's icon-id -> item comes from the NON-OCR link map (visual
+# matcher + manual overrides); it's PREFERRED over OCR (more reliable in practice).
+ITEMS_PATH = "data/items.json"
+ICON_MAP_PATH = "data/icon_item_map.json"            # icon-id -> {item_id, score, margin}
+OVERRIDES_PATH = "shared/links/icon_overrides.json"  # icon-id -> item_id (manual, wins)
+_LINK = _CAT = None
+
+
+def _jload(p, d):
+    return json.load(open(p, encoding="utf-8")) if os.path.exists(p) else d
+
+
+def _link_map():
+    """Resolved icon-id(str) -> {item_id, score, margin}; manual overrides win."""
+    global _LINK
+    if _LINK is None:
+        auto = _jload(ICON_MAP_PATH, {})
+        _LINK = {k: {"item_id": v.get("item_id"), "score": v.get("score"),
+                     "margin": v.get("margin")}
+                 for k, v in auto.items() if v.get("item_id")}
+        for k, iid in _jload(OVERRIDES_PATH, {}).items():
+            _LINK[k] = {"item_id": iid, "score": None, "margin": None, "override": True}
+    return _LINK
+
+
+def _catalog():
+    global _CAT
+    if _CAT is None:
+        _CAT = {it["id"]: it for it in _jload(ITEMS_PATH, [])}
+    return _CAT
 
 
 def value_of(it):
@@ -50,30 +81,56 @@ def _name_in_box(crop, ocr_scale, name_cutoff):
     return None, 0.0, " ".join(t for t, *_ in words)
 
 
+def _entry(it):
+    """Flatten a catalog item for the valuer."""
+    return {"id": it["id"], "name": it["name"], "short": it.get("shortName", ""),
+            "width": it.get("width", 1) or 1, "height": it.get("height", 1) or 1}
+
+
 def scan(pil, model, conf=0.25, imgsz=1536, ocr_scale=6, name_cutoff=0.6):
-    """Run the full pipeline on a PIL image. Returns a result dict."""
+    """Run the full pipeline on a PIL image. Returns a result dict.
+
+    Identity: YOLO icon-id -> item (non-OCR link map) is PREFERRED; OCR is the
+    fallback + an independent cross-check. Both POVs are recorded per detection."""
+    link, cat = _link_map(), _catalog()
     r = model.predict(pil, imgsz=imgsz, conf=conf, max_det=400, verbose=False)[0]
     items, unidentified = [], []
     for b in r.boxes:
         x0, y0, x1, y1 = (round(v) for v in b.xyxy[0].tolist())
-        icon_id = r.names[int(b.cls)]
-        det_conf = float(b.conf)
-        crop = pil.crop((x0, y0, x1, y1))
-        it, sc, raw = _name_in_box(crop, ocr_scale, name_cutoff)
-        rec = {"box": [x0, y0, x1, y1], "icon_id": str(icon_id),
-               "det_conf": round(det_conf, 3), "ocr": raw}
-        if it:
-            w, h = it.get("width", 1) or 1, it.get("height", 1) or 1
-            val = value_of(it)
-            rec.update({"id": it.get("id", ""), "name": it["name"], "short": it.get("shortName", ""),
-                        "value": val, "width": w, "height": h, "slots": w * h,
-                        "per_slot": round(val / (w * h)), "ocr_score": round(sc, 2)})
+        icon_id = str(r.names[int(b.cls)])
+        det_conf = round(float(b.conf), 3)
+
+        # 1) YOLO identity via the non-OCR icon-id -> item map (preferred)
+        meta = link.get(icon_id)
+        yitem = cat.get(meta["item_id"]) if meta else None
+        yolo = None
+        if yitem:
+            yolo = {**_entry(yitem), "score": meta.get("score"),
+                    "margin": meta.get("margin"), "override": meta.get("override", False)}
+
+        # 2) OCR identity (cross-check / fallback)
+        oit, osc, raw = _name_in_box(pil.crop((x0, y0, x1, y1)), ocr_scale, name_cutoff)
+        ocr = {**_entry(oit), "score": round(osc, 2), "raw": raw} if oit else \
+              {"id": "", "name": "", "short": "", "score": round(osc, 2), "raw": raw}
+
+        # choose: prefer YOLO when it resolves, else OCR
+        chosen, source = (yitem, "yolo") if yitem else (oit, "ocr") if oit else (None, None)
+        rec = {"box": [x0, y0, x1, y1], "icon_id": icon_id, "det_conf": det_conf,
+               "source": source, "yolo": yolo, "ocr": ocr,
+               "agree": bool(yitem and oit and yitem["id"] == oit["id"])}
+        if chosen:
+            e = _entry(chosen)
+            val = value_of(chosen)
+            rec.update(e, value=val, slots=e["width"] * e["height"],
+                       per_slot=round(val / (e["width"] * e["height"])))
             items.append(rec)
         else:
             unidentified.append(rec)
     items.sort(key=lambda r: r["per_slot"], reverse=True)
     return {"items": items, "unidentified": unidentified,
-            "detections": len(r.boxes), "identified": len(items)}
+            "detections": len(r.boxes), "identified": len(items),
+            "by_yolo": sum(1 for it in items if it["source"] == "yolo"),
+            "by_ocr": sum(1 for it in items if it["source"] == "ocr")}
 
 
 def annotate(pil, res):
@@ -100,11 +157,13 @@ def main():
     from ultralytics import YOLO
     m = YOLO(args.model)
     res = scan(Image.open(args.image).convert("RGB"), m, conf=args.conf)
-    print(f"{res['detections']} detections, {res['identified']} identified, "
+    print(f"{res['detections']} detections, {res['identified']} identified "
+          f"(YOLO {res['by_yolo']} / OCR {res['by_ocr']}), "
           f"{len(res['unidentified'])} unidentified\n")
-    print(f"{'KEEP (₽/slot desc)':38s}  slots   ₽/slot      value")
+    print(f"{'KEEP (₽/slot desc)':36s} src  slots   ₽/slot      value")
     for it in res["items"][:25]:
-        print(f"  {it['short'][:34]:34s}  {it['slots']:>3}  {it['per_slot']:>9,}  {it['value']:>10,}")
+        print(f"  {it['short'][:32]:32s} {it['source']:4s} {it['slots']:>3}  "
+              f"{it['per_slot']:>9,}  {it['value']:>10,}")
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ Notes:
 - Model + OCR are loaded once; a scan takes a few seconds (OCR per detected box).
 """
 import os, sys, io, json, time, threading
-from flask import Flask, jsonify, send_file, request, abort
+from flask import Flask, jsonify, send_file, request, abort, Response
 from PIL import ImageGrab, Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -31,6 +31,17 @@ app = Flask(__name__)
 _state = {"status": "idle", "result": None, "ts": None, "error": None}
 _model = None
 _lock = threading.Lock()
+_cond = threading.Condition()   # wakes SSE subscribers on every state change
+_ver = 0
+
+
+def _set(**kw):
+    """Update state and push to SSE subscribers immediately (no client polling)."""
+    global _ver
+    with _cond:
+        _state.update(**kw)
+        _ver += 1
+        _cond.notify_all()
 
 
 def get_model():
@@ -43,23 +54,23 @@ def get_model():
 
 def do_scan():
     if not _lock.acquire(blocking=False):
-        return  # a scan is already running
+        return  # a scan is already running -> ignore (no duplicate screenshot)
     try:
-        _state.update(status="capturing", error=None)
+        _set(status="capturing", error=None)
         img = ImageGrab.grab().convert("RGB")
         ts = time.strftime("%Y%m%d-%H%M%S")
         sess = os.path.join(SESSIONS, ts)
         os.makedirs(sess, exist_ok=True)
         img.save(os.path.join(sess, "raw.png"))
-        _state.update(status="scanning")
+        _set(status="scanning", ts=ts)
         res = scanmod.scan(img, get_model())
         res["ts"] = ts
         json.dump(res, open(os.path.join(sess, "scan.json"), "w"))
         # annotated copy for later review/tooling (green=identified, red=unidentified)
         scanmod.annotate(img, res).save(os.path.join(sess, "scan.png"))
-        _state.update(status="done", result=res, ts=ts)
+        _set(status="done", result=res, ts=ts)
     except Exception as e:
-        _state.update(status="error", error=str(e))
+        _set(status="error", error=str(e))
     finally:
         _lock.release()
 
@@ -76,6 +87,24 @@ def index():
 @app.route("/api/latest")
 def latest():
     return jsonify(_state)
+
+
+@app.route("/api/stream")           # Server-Sent Events: push state on every change
+def stream():
+    def gen():
+        last = -1
+        while True:
+            with _cond:
+                if _ver == last:
+                    _cond.wait(timeout=20)
+                cur, data = _ver, json.dumps(_state)
+            if cur != last:
+                last = cur
+                yield f"data: {data}\n\n"
+            else:
+                yield ": ping\n\n"      # heartbeat keeps the connection open
+    return Response(gen(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.route("/compare")

@@ -74,23 +74,23 @@ function render(items){
       rows.length ? rows.map(row).join('') : '<tr><td class="empty">—</td></tr>';
   fill('keep', byDesc); fill('ditch', byAsc);
 }
-async function poll(){
-  try {
-    const s = await (await fetch('/api/latest')).json();
-    const st = document.getElementById('status');
-    st.className = s.status;
-    st.textContent = s.status === 'done' ? 'scanned ' + (s.ts||'')
-                   : s.status === 'error' ? 'error: ' + (s.error||'')
-                   : s.status;
-    if (s.result){
-      render(s.result.items);
-      document.getElementById('counts').textContent =
-        `${s.result.identified}/${s.result.detections} identified · ${s.result.unidentified.length} unknown`;
-    }
-  } catch(e){}
+function applyState(s){
+  const st = document.getElementById('status');
+  st.className = s.status;
+  st.textContent = s.status === 'done' ? 'scanned ' + (s.ts||'')
+                 : s.status === 'error' ? 'error: ' + (s.error||'')
+                 : s.status + '…';
+  if (s.result){
+    const r = s.result;
+    render(r.items);
+    document.getElementById('counts').textContent =
+      `${r.identified}/${r.detections} identified (YOLO ${r.by_yolo} · OCR ${r.by_ocr}) · ${r.unidentified.length} unknown`;
+  }
 }
 async function scanNow(){ await fetch('/api/scan',{method:'POST'}); }
-setInterval(poll, 1200); poll();
+// server pushes updates instantly (no polling) — status the moment F2 fires, results when ready
+const ev = new EventSource('/api/stream');
+ev.onmessage = e => { try { applyState(JSON.parse(e.data)); } catch(_){} };
 </script>
 </body>
 </html>

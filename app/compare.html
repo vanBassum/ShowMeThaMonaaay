@@ -39,52 +39,68 @@
 <table>
   <thead><tr>
     <th>On screen</th>
-    <th>YOLO (icon-id)</th>
-    <th>OCR (name → catalog)</th>
+    <th>YOLO (icon-id → item) — preferred</th>
+    <th>OCR (reads name → catalog)</th>
+    <th>used / agree</th>
     <th>Grid/link <span style="text-transform:none">(todo)</span></th>
     <th>conf</th>
   </tr></thead>
-  <tbody id="rows"><tr><td colspan="5" class="empty">Press F2 / Scan to populate…</td></tr></tbody>
+  <tbody id="rows"><tr><td colspan="6" class="empty">Press F2 / Scan to populate…</td></tr></tbody>
 </table>
 <script>
 let lastTs = null;
 const esc = s => (s||'').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
 
-function row(ts, d, identified){
-  const crop = `<img class="crop" loading="lazy" src="/api/crop/${ts}?box=${d.box.join(',')}">`;
-  const yolo = `<div class="cell"><img class="icon" loading="lazy" src="/api/yolo-icon/${d.icon_id}" onerror="this.style.opacity=.2">`
-             + `<span class="id">#${d.icon_id}</span></div>`;
-  let ocr;
-  if (identified){
-    ocr = `<div class="cell"><img class="icon" loading="lazy" src="/api/cat-icon/${d.id}" onerror="this.style.opacity=.2">`
-        + `<div><div class="name">${esc(d.short||d.name)}</div>`
-        + `<div class="sub">${esc(d.name)}</div>`
-        + `<div class="sub">read: “${esc(d.ocr)}” · <span class="score">${d.ocr_score}</span></div></div></div>`;
+function yoloCell(d){
+  // cache icon (what YOLO detected) + the item the non-OCR map resolves it to
+  let m = `<div class="cell"><img class="icon" loading="lazy" src="/api/yolo-icon/${d.icon_id}" onerror="this.style.opacity=.2"><div>`;
+  if (d.yolo){
+    const conf = d.yolo.override ? 'manual'
+               : (d.yolo.margin!=null ? `score ${d.yolo.score} · margin ${d.yolo.margin}` : '');
+    m += `<div class="name">${esc(d.yolo.short||d.yolo.name)}</div>`
+       + `<div class="sub">#${d.icon_id} · ${conf}</div>`;
   } else {
-    ocr = `<div><span class="name no">no match</span>`
-        + `<div class="sub">read: “${esc(d.ocr)}”</div></div>`;
+    m += `<div class="name no">#${d.icon_id} — no map</div>`;
   }
-  return `<tr class="${identified?'':'unid'}"><td>${crop}</td><td>${yolo}</td>`
-       + `<td>${ocr}</td><td class="future">—</td>`
-       + `<td class="id">${d.det_conf}</td></tr>`;
+  return m + `</div></div>`;
 }
-
-async function poll(){
-  let s; try { s = await (await fetch('/api/latest')).json(); } catch(e){ return; }
-  if (!s.result || s.ts === lastTs) {
-    if (s.status && s.status!=='done') document.getElementById('meta').textContent = s.status;
-    return;
+function ocrCell(d){
+  const o = d.ocr || {};
+  if (o.id){
+    return `<div class="cell"><img class="icon" loading="lazy" src="/api/cat-icon/${o.id}" onerror="this.style.opacity=.2"><div>`
+         + `<div class="name">${esc(o.short||o.name)}</div>`
+         + `<div class="sub">read “${esc(o.raw)}” · <span class="score">${o.score}</span></div></div></div>`;
   }
+  return `<div><span class="name no">no match</span><div class="sub">read “${esc(o.raw)}”</div></div>`;
+}
+function usedCell(d){
+  const src = d.source ? `<b style="color:${d.source==='yolo'?'var(--ok)':'var(--gold)'}">${d.source}</b>` : '—';
+  let agree = '';
+  if (d.yolo && d.ocr && d.ocr.id) agree = d.agree ? '<span style="color:var(--ok)">✓ agree</span>'
+                                                    : '<span style="color:var(--no)">✗ differ</span>';
+  return `${src}<div class="sub">${agree}</div>`;
+}
+function row(ts, d){
+  const ident = !!d.source;
+  return `<tr class="${ident?'':'unid'}">`
+       + `<td><img class="crop" loading="lazy" src="/api/crop/${ts}?box=${d.box.join(',')}"></td>`
+       + `<td>${yoloCell(d)}</td><td>${ocrCell(d)}</td><td>${usedCell(d)}</td>`
+       + `<td class="future">—</td><td class="id">${d.det_conf}</td></tr>`;
+}
+function applyState(s){
+  if (s.status && s.status!=='done' && !s.result)
+    document.getElementById('meta').textContent = s.status + '…';
+  if (!s.result || s.ts === lastTs) return;
   lastTs = s.ts;
   const r = s.result;
-  const rows = r.items.map(d => row(s.ts, d, true))
-             .concat(r.unidentified.map(d => row(s.ts, d, false)));
+  const rows = r.items.concat(r.unidentified).map(d => row(s.ts, d));
   document.getElementById('rows').innerHTML = rows.join('') ||
-    '<tr><td colspan="5" class="empty">no detections</td></tr>';
+    '<tr><td colspan="6" class="empty">no detections</td></tr>';
   document.getElementById('meta').textContent =
-    `${s.ts} · ${r.identified}/${r.detections} identified · ${r.unidentified.length} unknown`;
+    `${s.ts} · ${r.identified}/${r.detections} identified (YOLO ${r.by_yolo} · OCR ${r.by_ocr}) · ${r.unidentified.length} unknown`;
 }
-setInterval(poll, 1500); poll();
+const ev = new EventSource('/api/stream');
+ev.onmessage = e => { try { applyState(JSON.parse(e.data)); } catch(_){} };
 </script>
 </body>
 </html>
