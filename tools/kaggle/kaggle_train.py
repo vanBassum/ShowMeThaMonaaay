@@ -80,8 +80,13 @@ subprocess.run([sys.executable, "tools/train.py", "--model", base,
                 "--patience", "6"], check=True)
 
 # 3) export artifacts to /kaggle/working (downloadable)
-run = f"runs/detect/{ROOT_NAME}"
+run = f"training/runs/{ROOT_NAME}"   # train.py sets project=training/runs
 shutil.copy(f"{run}/weights/best.pt", f"{WORK}/{ROOT_NAME}_best.pt")
-shutil.copy("data/yolo/classes.json", f"{WORK}/{ROOT_NAME}_classes.json")
+shutil.copy("training/dataset/classes.json", f"{WORK}/{ROOT_NAME}_classes.json")
 shutil.copy(f"{run}/results.csv", f"{WORK}/{ROOT_NAME}_results.csv")
+
+# keep the kernel OUTPUT lean: drop the multi-GB dataset + working copies so
+# `kaggle kernels output` only fetches the 3 small artifacts (not 4GB of images).
+for d in ["training", "shared", "tools"]:
+    shutil.rmtree(os.path.join(WORK, d), ignore_errors=True)
 print(f"DONE -> {ROOT_NAME}_best.pt, {ROOT_NAME}_classes.json, {ROOT_NAME}_results.csv")

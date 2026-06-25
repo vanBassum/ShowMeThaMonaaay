@@ -11,7 +11,7 @@ from ultralytics import YOLO
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data", default="data/yolo/data.yaml")
+    ap.add_argument("--data", default="training/dataset/data.yaml")
     ap.add_argument("--model", default="training/base/yolo11n.pt")
     ap.add_argument("--epochs", type=int, default=3)   # dev default (synth converges fast)
     ap.add_argument("--imgsz", type=int, default=1280)  # tiny 1x1 icons need resolution
@@ -33,10 +33,13 @@ def main():
         imgsz=args.imgsz,
         batch=args.batch,
         name=args.name,
+        project="training/runs",
         optimizer=args.optimizer,
         lr0=args.lr0,
         patience=args.patience,
-        # icons don't flip/rotate in-game; keep geometry, let color jitter do the work
+        # 90deg rotation is done per-icon in build_dataset (keeps the same class +
+        # footprint); ultralytics' own geometric aug stays OFF so it can't rotate the
+        # whole scene / boxes or flip icons into orientations the game never shows.
         fliplr=0.0, flipud=0.0, degrees=0.0, scale=0.1, mosaic=0.0,
     )
 

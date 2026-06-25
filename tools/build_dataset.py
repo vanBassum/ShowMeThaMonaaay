@@ -40,7 +40,7 @@ CACHE = os.environ.get("EFT_ICON_CACHE") or os.path.join(
     "EscapeFromTarkov", "Icon Cache", "live",
 )
 TEMPLATE_DIR = "shared/templates/screen1"
-OUT = "data/yolo"
+OUT = "training/dataset"
 
 
 def icon_cells(px):
