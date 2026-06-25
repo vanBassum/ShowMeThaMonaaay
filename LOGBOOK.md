@@ -5,6 +5,26 @@ See `CLAUDE.md` for the format rule.
 
 ---
 
+## 2026-06-25 — Prices auto-cache: 24h TTL refresh in the server (`yolo-without-detector`)
+
+**What.** The server now keeps prices fresh on its own. `tools/fetch_items.py` gained
+reusable `fetch_items()` / `write_items()`; `scan.py` gained `catalog_age()` /
+`invalidate_catalog()`. `server.py` runs a daemon (`price_refresher`) that checks
+hourly and, when `data/items.json` is older than `PRICES_TTL` (24h), re-pulls
+tarkov.dev prices, rewrites the cache, drops the in-memory catalog, and re-projects the
+current scan so on-screen values update live. Manual force via `POST /api/refresh-prices`.
+
+**Why.** Prices were a frozen snapshot from the last manual `fetch_items.py` run (no TTL,
+and the running server never saw updates). Wanted set-and-forget freshness.
+
+**Result (works).** Cache was 31.9h old → first non-forced call refreshed 5043 items
+end-to-end; a second call skipped (age 0.002h). Icons are NOT re-downloaded (prices-only
+path). `data/` is gitignored so the refreshed json stays local.
+
+**Next.** Optional: surface `prices_age_h` in the UI header.
+
+---
+
 ## 2026-06-25 — Inspector view: pan/zoom screenshot + detection overlay + mark-missed (`yolo-without-detector`)
 
 **What.** New third page `/inspect` (`app/inspect.html` + `/api/raw/<ts>`,

@@ -13,13 +13,16 @@ import os, sys, io, json, time, threading
 from flask import Flask, jsonify, send_file, request, abort, Response
 from PIL import ImageGrab, Image
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import scan as scanmod  # noqa: E402
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)                            # repo root (anchor file paths here)
+sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(ROOT, "tools"))         # for fetch_items (price refresh)
+import scan as scanmod      # noqa: E402
+import fetch_items          # noqa: E402
 
 MODEL_PATH = scanmod.DEFAULT_MODEL
 PORT = 5001
-HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)                            # repo root (anchor file paths here)
+PRICES_TTL = 24 * 3600      # re-fetch tarkov.dev prices when items.json is older than this
 # icon sources for the compare page (absolute — send_file needs absolute paths)
 CACHE = os.environ.get("EFT_ICON_CACHE") or os.path.join(
     os.environ.get("LOCALAPPDATA", ""), "Temp", "Battlestate Games",
@@ -29,11 +32,12 @@ SESSIONS = os.path.join(ROOT, "sessions")
 GALLERY = os.path.join(ROOT, "gallery")                # real-crop training data (gitignored)
 
 app = Flask(__name__)
-_state = {"status": "idle", "result": None, "ts": None, "error": None}
+_state = {"status": "idle", "result": None, "ts": None, "error": None, "prices_age_h": None}
 _model = None
 _lock = threading.Lock()
 _cond = threading.Condition()   # wakes SSE subscribers on every state change
 _ver = 0
+_price_lock = threading.Lock()  # one price refresh at a time
 
 
 def _set(**kw):
@@ -78,6 +82,41 @@ def do_scan():
 
 def trigger():
     threading.Thread(target=do_scan, daemon=True).start()
+
+
+def refresh_prices(force=False):
+    """Re-fetch prices from tarkov.dev when the cache (items.json) is older than the
+    TTL, rewrite it, drop the in-memory catalog, and re-project the current scan so the
+    on-screen values update. Runs at most one at a time; returns True if it refreshed."""
+    if not force and scanmod.catalog_age() < PRICES_TTL:
+        return False
+    if not _price_lock.acquire(blocking=False):
+        return False                                   # a refresh is already running
+    try:
+        items = fetch_items.fetch_items()              # GraphQL query (prices + metadata)
+        fetch_items.write_items(items)                 # overwrite data/items.json
+        scanmod.invalidate_catalog()
+        age_h = round(scanmod.catalog_age() / 3600, 1)
+        if _state.get("result"):                       # reflect fresh prices on screen
+            res = scanmod.project(scanmod.dets_of(_state["result"]))
+            res["ts"] = _state.get("ts")
+            _set(result=res, prices_age_h=age_h)
+        else:
+            _set(prices_age_h=age_h)
+        print(f"prices refreshed ({len(items)} items)")
+        return True
+    except Exception as e:
+        print(f"(price refresh failed: {e})")
+        return False
+    finally:
+        _price_lock.release()
+
+
+def price_refresher():
+    """Background daemon: keep prices fresh. Checks hourly and refreshes past the TTL."""
+    while True:
+        refresh_prices()
+        time.sleep(3600)
 
 
 def save_missed(ts, box, item_id=""):
@@ -230,6 +269,12 @@ def override():
     return jsonify(ok=True)
 
 
+@app.route("/api/refresh-prices", methods=["POST"])   # force a price re-fetch now
+def refresh_prices_now():
+    ok = refresh_prices(force=True)
+    return jsonify(ok=ok, prices_age_h=_state.get("prices_age_h"))
+
+
 @app.route("/api/missed", methods=["POST"])      # save a drawn rect the detector missed
 def missed():
     d = request.get_json(force=True)
@@ -243,6 +288,9 @@ def missed():
 if __name__ == "__main__":
     print("loading model...")
     get_model()
+    age = scanmod.catalog_age()
+    print(f"prices cached {age/3600:.1f}h ago (auto-refresh > {PRICES_TTL//3600}h)")
+    threading.Thread(target=price_refresher, daemon=True).start()  # 24h price cache
     try:
         import keyboard
         keyboard.add_hotkey("f2", trigger)

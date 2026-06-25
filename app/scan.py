@@ -108,6 +108,17 @@ def _catalog():
     return _CAT
 
 
+def catalog_age():
+    """Seconds since the price/metadata cache (items.json) was last written."""
+    return time.time() - os.path.getmtime(ITEMS_PATH) if os.path.exists(ITEMS_PATH) else float("inf")
+
+
+def invalidate_catalog():
+    """Drop the in-memory catalog so the next lookup reloads fresh prices from disk."""
+    global _CAT
+    _CAT = None
+
+
 def search_items(q, limit=25):
     """Search the catalog by name/short for the manual-correction picker."""
     q = " ".join(q.lower().split())

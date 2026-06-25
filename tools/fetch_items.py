@@ -51,6 +51,20 @@ def gql(query):
     return payload["data"]
 
 
+def fetch_items():
+    """Query the API and return the raw items list (prices + metadata)."""
+    return gql(QUERY)["items"]
+
+
+def write_items(items, path=None):
+    """Persist the items list to data/items.json (the price/metadata cache)."""
+    path = path or os.path.join(DATA, "items.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(items, f)
+    return path
+
+
 def download_icon(item):
     url = item.get("gridImageLink")
     if not url:
@@ -73,11 +87,10 @@ def download_icon(item):
 def main():
     os.makedirs(ICONS, exist_ok=True)
     print("Querying GraphQL ...")
-    items = gql(QUERY)["items"]
+    items = fetch_items()
     print(f"  {len(items)} items")
 
-    with open(os.path.join(DATA, "items.json"), "w", encoding="utf-8") as f:
-        json.dump(items, f)
+    write_items(items)
 
     todo = [it for it in items if it.get("gridImageLink")]
     print(f"Downloading {len(todo)} icons (cached ones skipped) ...")
