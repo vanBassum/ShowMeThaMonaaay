@@ -94,7 +94,9 @@ function applyState(s){
   if (!s.result || s.ts === lastTs) return;
   lastTs = s.ts;
   const r = s.result;
-  const rows = r.items.concat(r.unidentified).map(d => row(s.ts, d));
+  const rows = r.items.concat(r.unidentified)
+    .sort((a,b) => (a.certainty||0) - (b.certainty||0))   // least certain (+ unidentified) on top
+    .map(d => row(s.ts, d));
   document.getElementById('rows').innerHTML = rows.join('') ||
     '<tr><td colspan="6" class="empty">no detections</td></tr>';
   document.getElementById('meta').textContent =
