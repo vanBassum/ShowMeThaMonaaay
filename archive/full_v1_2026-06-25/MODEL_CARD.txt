@@ -1,0 +1,40 @@
+MODEL CARD — full_v1 (ShowMeThaMonaaay, branch yolo-without-detector)
+==================================================================
+Date trained : 2026-06-25
+Git commit   : 6f1fa60
+File         : best.pt  (use this), last.pt (final epoch)
+Base model   : yolo11n.pt (Ultralytics)
+
+WHAT IT DOES
+  Single-pass detector. Per item: bounding box + class = ICON-ID (the EFT icon
+  cache file number, NOT a real item name). Coupling icon-id -> item name/price
+  is done separately (matcher bootstrap in icon_item_map.json; OCR planned).
+
+CLASSES
+  nc = 3446 (one per cache icon). class idx -> icon# in classes.json.
+  best.pt already embeds icon# as the class name.
+
+DATASET (synthetic, regenerable)
+  build_dataset.py --per-class 35 --max-objs 35 --workers 16 --seed 7
+  -> 3455 images, icons pasted on templates/screen1/background.png at grid cells.
+  NOTE: BARE icons only — no in-game overlays (stack counts, durability bars,
+  found-in-raid, selection highlight). This is the cause of the real-screenshot
+  gap below.
+
+TRAINING
+  train.py --name full --epochs 80 --imgsz 1536   (optimizer SGD, lr0 0.01)
+  optimizer pinned (NOT 'auto' — auto sets lr=0.002*5/(4+nc)=~3e-6 at nc=3446
+  and never converges). Wall clock ~12.8 h on a 12 GB GPU.
+
+RESULTS (synthetic val)
+  final  (ep 80): mAP50=0.917  mAP50-95=0.917  P=0.929  R=0.885
+  best   (ep 53): mAP50=0.923  mAP50-95=0.923
+
+KNOWN LIMITATION (sim-to-real gap)
+  On REAL session screenshots it detects only ~12-26 of ~80 stash items (conf
+  0.25). Detected items are conf~1.00; the rest read as background because real
+  items carry overlays the synthetic data lacked. Fix = add overlays+jitter to
+  build_dataset.py and retrain/fine-tune. See LOGBOOK 2026-06-25.
+
+HOW TO USE
+  python predict.py "path/to/shot.png" --model archive/full_v1_2026-06-25/best.pt
