@@ -26,6 +26,12 @@ P_NAME, P_COUNT, P_FIR, P_MARKED = 0.95, 0.35, 0.30, 0.10
 # ONE orientation, so without this the model never sees rotated items and misses
 # them entirely. Rotate 90 deg with this prob (same class, footprint swapped cw<->ch).
 P_ROT90 = 0.5
+# Items can have a colored cell background (assignable bg colors + ammo tints). The
+# cache icon is transparent on a plain cell, so without this the model never sees a
+# tinted cell behind/through an item. Real muted EFT tints sampled from screenshots.
+P_BGCOLOR = 0.30
+BG_COLORS = [(72, 64, 45), (86, 49, 37), (59, 66, 35), (36, 47, 61),
+             (39, 29, 42), (90, 30, 35), (34, 55, 49)]
 
 CACHE = os.path.join(
     os.environ["LOCALAPPDATA"], "Temp", "Battlestate Games",
@@ -131,6 +137,11 @@ def build_image(bg, containers, queue, icons_ram, rng, inset=2, max_objs=None,
         y0 = c["y"] + row * c["ch"] + inset
         bw = cw * c["cw"] - 2 * inset
         bh = ch * c["ch"] - 2 * inset
+        if rng.random() < P_BGCOLOR:   # solid colored cell behind the (transparent) icon
+            ImageDraw.Draw(img).rectangle(
+                [round(x0 - inset), round(y0 - inset),
+                 round(x0 + bw + inset), round(y0 + bh + inset)],
+                fill=rng.choice(BG_COLORS))
         ic = icons_ram[path]
         if rot:
             ic = ic.transpose(Image.ROTATE_90)
