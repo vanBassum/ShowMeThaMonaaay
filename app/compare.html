@@ -56,9 +56,9 @@ function yoloCell(d){
   let m = `<div class="cell"><img class="icon" loading="lazy" src="/api/yolo-icon/${d.icon_id}" onerror="this.style.opacity=.2"><div>`;
   if (d.yolo){
     const conf = d.yolo.override ? 'manual'
-               : (d.yolo.margin!=null ? `score ${d.yolo.score} · margin ${d.yolo.margin}` : '');
+               : (d.yolo.margin!=null ? `s${d.yolo.score}·m${d.yolo.margin}` : '');
     m += `<div class="name">${esc(d.yolo.short||d.yolo.name)}</div>`
-       + `<div class="sub">#${d.icon_id} · ${conf}</div>`;
+       + `<div class="sub">#${d.icon_id} · ${conf} · cert <b>${d.yolo.certainty}</b></div>`;
   } else {
     m += `<div class="name no">#${d.icon_id} — no map</div>`;
   }
@@ -74,7 +74,7 @@ function ocrCell(d){
   return `<div><span class="name no">no match</span><div class="sub">read “${esc(o.raw)}”</div></div>`;
 }
 function usedCell(d){
-  const src = d.source ? `<b style="color:${d.source==='yolo'?'var(--ok)':'var(--gold)'}">${d.source}</b>` : '—';
+  const src = d.source ? `<b style="color:${d.source==='yolo'?'var(--ok)':'var(--gold)'}">${d.source} ${d.certainty}</b>` : '—';
   let agree = '';
   if (d.yolo && d.ocr && d.ocr.id) agree = d.agree ? '<span style="color:var(--ok)">✓ agree</span>'
                                                     : '<span style="color:var(--no)">✗ differ</span>';

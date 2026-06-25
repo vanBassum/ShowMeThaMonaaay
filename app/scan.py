@@ -29,6 +29,25 @@ ICON_MAP_PATH = "data/icon_item_map.json"            # icon-id -> {item_id, scor
 OVERRIDES_PATH = "shared/links/icon_overrides.json"  # icon-id -> item_id (manual, wins)
 _LINK = _CAT = None
 
+# The visual icon-id->item map is often right on the ICON but wrong on the ITEM when
+# its match is ambiguous. Turn its score/margin into a 0..1 certainty and prefer
+# whichever source (icon-map vs OCR) is more certain. Tunables:
+MARGIN_FULL = 5.0    # icon-map margin (gap to 2nd best) giving full confidence
+SCORE_GOOD = 12.0    # L2 distance <= this = great visual match
+SCORE_BAD = 40.0     # L2 distance >= this = poor visual match
+
+
+def yolo_certainty(meta):
+    """0..1 confidence that the icon-id->item map is correct for this icon."""
+    if meta.get("override"):
+        return 1.0                                   # manual link = fully trusted
+    m, s = meta.get("margin"), meta.get("score")
+    if m is None or s is None:
+        return 0.5
+    margin_c = max(0.0, min(1.0, m / MARGIN_FULL))   # ambiguous (low margin) -> low
+    score_c = max(0.0, min(1.0, (SCORE_BAD - s) / (SCORE_BAD - SCORE_GOOD)))
+    return round(margin_c * score_c, 3)
+
 
 def _jload(p, d):
     return json.load(open(p, encoding="utf-8")) if os.path.exists(p) else d
@@ -100,23 +119,30 @@ def scan(pil, model, conf=0.25, imgsz=1536, ocr_scale=6, name_cutoff=0.6):
         icon_id = str(r.names[int(b.cls)])
         det_conf = round(float(b.conf), 3)
 
-        # 1) YOLO identity via the non-OCR icon-id -> item map (preferred)
+        # 1) YOLO identity via the non-OCR icon-id -> item map, with a certainty
         meta = link.get(icon_id)
         yitem = cat.get(meta["item_id"]) if meta else None
+        yc = yolo_certainty(meta) if yitem else 0.0
         yolo = None
         if yitem:
-            yolo = {**_entry(yitem), "score": meta.get("score"),
-                    "margin": meta.get("margin"), "override": meta.get("override", False)}
+            yolo = {**_entry(yitem), "score": meta.get("score"), "margin": meta.get("margin"),
+                    "override": meta.get("override", False), "certainty": yc}
 
-        # 2) OCR identity (cross-check / fallback)
+        # 2) OCR identity (independent cross-check); its fuzzy score is its certainty
         oit, osc, raw = _name_in_box(pil.crop((x0, y0, x1, y1)), ocr_scale, name_cutoff)
-        ocr = {**_entry(oit), "score": round(osc, 2), "raw": raw} if oit else \
-              {"id": "", "name": "", "short": "", "score": round(osc, 2), "raw": raw}
+        oc = round(osc, 2) if oit else 0.0
+        ocr = {**_entry(oit), "score": oc, "raw": raw} if oit else \
+              {"id": "", "name": "", "short": "", "score": oc, "raw": raw}
 
-        # choose: prefer YOLO when it resolves, else OCR
-        chosen, source = (yitem, "yolo") if yitem else (oit, "ocr") if oit else (None, None)
+        # choose the MORE CERTAIN source (confident icon-match -> YOLO; ambiguous -> OCR)
+        if yitem and (not oit or yc >= oc):
+            chosen, source, cert = yitem, "yolo", yc
+        elif oit:
+            chosen, source, cert = oit, "ocr", oc
+        else:
+            chosen, source, cert = None, None, 0.0
         rec = {"box": [x0, y0, x1, y1], "icon_id": icon_id, "det_conf": det_conf,
-               "source": source, "yolo": yolo, "ocr": ocr,
+               "source": source, "certainty": cert, "yolo": yolo, "ocr": ocr,
                "agree": bool(yitem and oit and yitem["id"] == oit["id"])}
         if chosen:
             e = _entry(chosen)

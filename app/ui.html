@@ -67,12 +67,14 @@ function dedup(items){
   return [...map.values()];
 }
 function render(items){
-  const uniq = dedup(items);
-  const byDesc = [...uniq].sort((a,b)=>b.per_slot-a.per_slot);
-  const byAsc  = [...uniq].sort((a,b)=>a.per_slot-b.per_slot);
+  // dedup, then SPLIT at the median so each item is in exactly one list, ~equal length
+  const sorted = dedup(items).sort((a,b)=>b.per_slot-a.per_slot);
+  const mid = Math.ceil(sorted.length/2);
+  const keep  = sorted.slice(0, mid);            // top half, highest ₽/slot first
+  const ditch = sorted.slice(mid).reverse();     // bottom half, lowest ₽/slot first
   const fill=(id,rows)=>document.getElementById(id).innerHTML =
       rows.length ? rows.map(row).join('') : '<tr><td class="empty">—</td></tr>';
-  fill('keep', byDesc); fill('ditch', byAsc);
+  fill('keep', keep); fill('ditch', ditch);
 }
 function applyState(s){
   const st = document.getElementById('status');
