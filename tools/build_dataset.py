@@ -33,8 +33,10 @@ P_BGCOLOR = 0.30
 BG_COLORS = [(72, 64, 45), (86, 49, 37), (59, 66, 35), (36, 47, 61),
              (39, 29, 42), (90, 30, 35), (34, 55, 49)]
 
-CACHE = os.path.join(
-    os.environ["LOCALAPPDATA"], "Temp", "Battlestate Games",
+# Local default = the live EFT icon cache in AppData. Override with EFT_ICON_CACHE
+# (e.g. on Kaggle, point it at the uploaded cache dir). .get avoids KeyError off-Windows.
+CACHE = os.environ.get("EFT_ICON_CACHE") or os.path.join(
+    os.environ.get("LOCALAPPDATA", ""), "Temp", "Battlestate Games",
     "EscapeFromTarkov", "Icon Cache", "live",
 )
 TEMPLATE_DIR = "shared/templates/screen1"
@@ -281,17 +283,41 @@ def main():
                     help="parallel generation processes (default: all cores)")
     ap.add_argument("--no-overlays", action="store_true",
                     help="disable game-style name/count/FiR/marked overlays")
+    ap.add_argument("--collapse-dups", action="store_true",
+                    help="merge exact-duplicate icon groups (shared/links/icon_dups.json) "
+                         "into ONE class each; merged classes are flagged ambiguous (OCR resolves)")
     args = ap.parse_args()
     random.seed(args.seed)
     overlays = not args.no_overlays
 
     icons = load_icons(args.max_classes, args.seed)
     containers = load_grids()
-    print(f"icons/classes: {len(icons)}  containers: {len(containers)}  overlays: {overlays}")
 
-    # contiguous class indices; remember original icon number
-    cls_of = {icon_no: i for i, (icon_no, *_) in enumerate(icons)}
-    names = {i: str(icon_no) for icon_no, i in cls_of.items()}
+    # class assignment. optionally collapse exact-duplicate icon groups so identical
+    # pixels no longer carry contradictory labels (the merged class = "one of these,
+    # OCR decides"). non-collapse path is identical to before (1 class per icon).
+    rep_of = {}        # icon_no -> representative icon_no (min of its exact-dup group)
+    group_icons = {}   # representative icon_no -> sorted [icon_no...] in the group
+    if args.collapse_dups:
+        dups = json.load(open(os.path.join("shared", "links", "icon_dups.json")))
+        for g in dups["groups"]:
+            rep = min(g)
+            group_icons[rep] = sorted(g)
+            for ic in g:
+                rep_of[ic] = rep
+
+    def canon(no):
+        return rep_of.get(no, no)
+
+    canon_keys = sorted({canon(no) for no, *_ in icons})
+    cls_of_canon = {k: i for i, k in enumerate(canon_keys)}
+    cls_of = {no: cls_of_canon[canon(no)] for no, *_ in icons}
+    nc = len(canon_keys)
+    names = {i: str(k) for k, i in cls_of_canon.items()}
+    ambiguous = sorted(cls_of_canon[r] for r in group_icons)   # merged-group class idxs
+    class_icons = {cls_of_canon[k]: group_icons.get(k, [k]) for k in canon_keys}
+    print(f"icons: {len(icons)}  containers: {len(containers)}  overlays: {overlays}  "
+          f"nc: {nc}  (collapsed {len(icons)-nc} dup icons into {len(group_icons)} classes)")
 
     # build placement queue: every class repeated per_class times, shuffled
     queue = []
@@ -334,16 +360,19 @@ def main():
     dt = _t.perf_counter() - t0
     print(f"wrote {idx} images in {dt:.1f}s using {workers} workers")
 
-    json.dump(names, open(os.path.join(OUT, "classes.json"), "w"))
+    # classes.json: idx->icon# names, plus dedupe metadata (ambiguous merged classes
+    # and the candidate icon#s per class) so OCR/linking can resolve merged groups.
+    json.dump({"names": names, "ambiguous": ambiguous, "class_icons": class_icons},
+              open(os.path.join(OUT, "classes.json"), "w"))
     with open(os.path.join(OUT, "data.yaml"), "w") as f:
         f.write(f"path: {os.path.abspath(OUT)}\n")
         f.write("train: images/train\n")
         f.write("val: images/val\n")
-        f.write(f"nc: {len(icons)}\n")
+        f.write(f"nc: {nc}\n")
         f.write("names:\n")
-        for i in range(len(icons)):
+        for i in range(nc):
             f.write(f"  {i}: '{names[i]}'\n")
-    print(f"data.yaml + classes.json written to {OUT}")
+    print(f"data.yaml + classes.json written to {OUT}  (nc={nc}, {len(ambiguous)} ambiguous)")
 
 
 if __name__ == "__main__":

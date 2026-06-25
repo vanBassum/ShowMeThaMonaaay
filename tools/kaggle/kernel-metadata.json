@@ -1,0 +1,13 @@
+{
+  "id": "vanbassum/mona1-train",
+  "title": "mona1-train",
+  "code_file": "kaggle_train.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": ["vanbassum/showmethamonaaay-inputs"],
+  "competition_sources": [],
+  "kernel_sources": []
+}

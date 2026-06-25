@@ -22,3 +22,6 @@ __pycache__/
 
 # editor / tooling
 .claude/
+
+# kaggle upload staging (regenerate: python tools/pack_for_kaggle.py)
+kaggle_pkg/
