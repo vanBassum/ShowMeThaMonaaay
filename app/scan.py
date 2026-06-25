@@ -14,7 +14,7 @@ CLI test (no F2 / capture needed):
   python app/scan.py sessions/20260623-182907/raw.png
   python app/scan.py shot.png --model shared/models/best.pt --conf 0.25
 """
-import os, sys, json, argparse
+import os, sys, json, time, argparse
 from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # for sibling imports
@@ -25,8 +25,9 @@ DEFAULT_MODEL = "shared/models/best.pt"   # barry v3 (active)
 # Identity sources. YOLO's icon-id -> item comes from the NON-OCR link map (visual
 # matcher + manual overrides); it's PREFERRED over OCR (more reliable in practice).
 ITEMS_PATH = "data/items.json"
-ICON_MAP_PATH = "data/icon_item_map.json"            # icon-id -> {item_id, score, margin}
-OVERRIDES_PATH = "shared/links/icon_overrides.json"  # icon-id -> item_id (manual, wins)
+ICON_MAP_PATH = "data/icon_item_map.json"            # icon-id -> {item_id, score, margin} (visual matcher)
+OVERRIDES_PATH = "shared/links/icon_overrides.json"  # legacy flat manual map (icon-id -> item_id)
+LINKS_LOG = "shared/links/links.jsonl"               # append-only EVENT log (manual corrections etc.)
 _LINK = _CAT = None
 
 # The visual icon-id->item map is often right on the ICON but wrong on the ITEM when
@@ -53,17 +54,51 @@ def _jload(p, d):
     return json.load(open(p, encoding="utf-8")) if os.path.exists(p) else d
 
 
+def _events():
+    """Read the append-only link event log (one JSON object per line)."""
+    if not os.path.exists(LINKS_LOG):
+        return []
+    out = []
+    for line in open(LINKS_LOG, encoding="utf-8"):
+        line = line.strip()
+        if line:
+            try:
+                out.append(json.loads(line))
+            except ValueError:
+                pass
+    return out
+
+
 def _link_map():
-    """Resolved icon-id(str) -> {item_id, score, margin}; manual overrides win."""
+    """Resolved icon-id(str) -> {item_id, score, margin, override}. Projection over:
+    auto visual matcher, then manual sources (flat overrides + event log) which win.
+    The event log is append-only; the LATEST manual event per icon takes effect."""
     global _LINK
     if _LINK is None:
         auto = _jload(ICON_MAP_PATH, {})
         _LINK = {k: {"item_id": v.get("item_id"), "score": v.get("score"),
                      "margin": v.get("margin")}
                  for k, v in auto.items() if v.get("item_id")}
-        for k, iid in _jload(OVERRIDES_PATH, {}).items():
+        for k, iid in _jload(OVERRIDES_PATH, {}).items():         # legacy flat manual
             _LINK[k] = {"item_id": iid, "score": None, "margin": None, "override": True}
+        for ev in _events():                                      # event-sourced manual
+            if ev.get("source") == "manual" and ev.get("item_id"):
+                _LINK[str(ev["icon_id"])] = {"item_id": ev["item_id"], "score": None,
+                                             "margin": None, "override": True}
     return _LINK
+
+
+def add_manual_link(icon_id, item_id, note=""):
+    """Append a manual correction to the event log (never overwrites) and invalidate
+    the cached projection so the next scan/reproject reflects it."""
+    global _LINK
+    os.makedirs(os.path.dirname(LINKS_LOG), exist_ok=True)
+    ev = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "icon_id": str(icon_id),
+          "item_id": item_id, "source": "manual", "certainty": 100, "note": note}
+    with open(LINKS_LOG, "a", encoding="utf-8") as f:
+        f.write(json.dumps(ev, ensure_ascii=False) + "\n")
+    _LINK = None
+    return ev
 
 
 def _catalog():
@@ -71,6 +106,23 @@ def _catalog():
     if _CAT is None:
         _CAT = {it["id"]: it for it in _jload(ITEMS_PATH, [])}
     return _CAT
+
+
+def search_items(q, limit=25):
+    """Search the catalog by name/short for the manual-correction picker."""
+    q = " ".join(q.lower().split())
+    if not q:
+        return []
+    out = []
+    for it in _catalog().values():
+        name, short = it["name"].lower(), (it.get("shortName") or "").lower()
+        if q in name or q in short:
+            out.append({"id": it["id"], "name": it["name"], "short": it.get("shortName", ""),
+                        "width": it.get("width", 1) or 1, "height": it.get("height", 1) or 1,
+                        "value": value_of(it)})
+    out.sort(key=lambda x: (not x["short"].lower().startswith(q),
+                            not x["name"].lower().startswith(q), len(x["name"])))
+    return out[:limit]
 
 
 def value_of(it):
@@ -106,57 +158,78 @@ def _entry(it):
             "width": it.get("width", 1) or 1, "height": it.get("height", 1) or 1}
 
 
-def scan(pil, model, conf=0.25, imgsz=1536, ocr_scale=6, name_cutoff=0.6):
-    """Run the full pipeline on a PIL image. Returns a result dict.
-
-    Identity: YOLO icon-id -> item (non-OCR link map) is PREFERRED; OCR is the
-    fallback + an independent cross-check. Both POVs are recorded per detection."""
+def _resolve(det):
+    """Turn one raw detection (icon_id + box + ocr fields) into a result rec, choosing
+    the MORE CERTAIN identity (confident icon-match -> YOLO; ambiguous -> OCR; manual
+    override always wins). Pure function of det + current link map -> re-runnable."""
     link, cat = _link_map(), _catalog()
-    r = model.predict(pil, imgsz=imgsz, conf=conf, max_det=400, verbose=False)[0]
+    icon_id = str(det["icon_id"])
+    meta = link.get(icon_id)
+    yitem = cat.get(meta["item_id"]) if meta else None
+    yc = yolo_certainty(meta) if yitem else 0.0
+    yolo = ({**_entry(yitem), "score": meta.get("score"), "margin": meta.get("margin"),
+             "override": meta.get("override", False), "certainty": yc} if yitem else None)
+
+    oit = cat.get(det.get("ocr_id")) if det.get("ocr_id") else None
+    oc = det.get("ocr_score", 0.0)
+    ocr = {**_entry(oit), "score": oc, "raw": det.get("ocr_raw", "")} if oit else \
+          {"id": "", "name": "", "short": "", "score": oc, "raw": det.get("ocr_raw", "")}
+
+    if yitem and (not oit or yc >= oc):
+        chosen = yitem
+        source = "override" if (yolo and yolo["override"]) else "yolo"
+        cert = yc
+    elif oit:
+        chosen, source, cert = oit, "ocr", oc
+    else:
+        chosen, source, cert = None, None, 0.0
+    rec = {"box": det["box"], "icon_id": icon_id, "det_conf": det.get("det_conf"),
+           "source": source, "certainty": cert, "yolo": yolo, "ocr": ocr,
+           "agree": bool(yitem and oit and yitem["id"] == oit["id"])}
+    if chosen:
+        e = _entry(chosen)
+        val = value_of(chosen)
+        rec.update(e, value=val, slots=e["width"] * e["height"],
+                   per_slot=round(val / (e["width"] * e["height"])))
+    return rec, bool(chosen)
+
+
+def project(dets):
+    """Build the result dict from raw detections + the current link map. Re-runnable
+    after a manual correction (no YOLO/OCR needed)."""
     items, unidentified = [], []
+    for det in dets:
+        rec, ok = _resolve(det)
+        (items if ok else unidentified).append(rec)
+    items.sort(key=lambda r: r["per_slot"], reverse=True)
+    total = sum(r["value"] for r in items)
+    return {"items": items, "unidentified": unidentified,
+            "detections": len(dets), "identified": len(items), "total": total,
+            "by_yolo": sum(1 for r in items if r["source"] == "yolo"),
+            "by_ocr": sum(1 for r in items if r["source"] == "ocr"),
+            "by_override": sum(1 for r in items if r["source"] == "override")}
+
+
+def dets_of(result):
+    """Reconstruct the raw detection list from a result (for re-projection)."""
+    return [{"icon_id": r["icon_id"], "box": r["box"], "det_conf": r.get("det_conf"),
+             "ocr_id": r["ocr"]["id"], "ocr_score": r["ocr"]["score"],
+             "ocr_raw": r["ocr"]["raw"]}
+            for r in result["items"] + result["unidentified"]]
+
+
+def scan(pil, model, conf=0.25, imgsz=1536, ocr_scale=6, name_cutoff=0.6):
+    """Full pipeline on a PIL image: YOLO boxes + OCR-in-box -> raw detections -> project."""
+    r = model.predict(pil, imgsz=imgsz, conf=conf, max_det=400, verbose=False)[0]
+    dets = []
     for b in r.boxes:
         x0, y0, x1, y1 = (round(v) for v in b.xyxy[0].tolist())
-        icon_id = str(r.names[int(b.cls)])
-        det_conf = round(float(b.conf), 3)
-
-        # 1) YOLO identity via the non-OCR icon-id -> item map, with a certainty
-        meta = link.get(icon_id)
-        yitem = cat.get(meta["item_id"]) if meta else None
-        yc = yolo_certainty(meta) if yitem else 0.0
-        yolo = None
-        if yitem:
-            yolo = {**_entry(yitem), "score": meta.get("score"), "margin": meta.get("margin"),
-                    "override": meta.get("override", False), "certainty": yc}
-
-        # 2) OCR identity (independent cross-check); its fuzzy score is its certainty
         oit, osc, raw = _name_in_box(pil.crop((x0, y0, x1, y1)), ocr_scale, name_cutoff)
-        oc = round(osc, 2) if oit else 0.0
-        ocr = {**_entry(oit), "score": oc, "raw": raw} if oit else \
-              {"id": "", "name": "", "short": "", "score": oc, "raw": raw}
-
-        # choose the MORE CERTAIN source (confident icon-match -> YOLO; ambiguous -> OCR)
-        if yitem and (not oit or yc >= oc):
-            chosen, source, cert = yitem, "yolo", yc
-        elif oit:
-            chosen, source, cert = oit, "ocr", oc
-        else:
-            chosen, source, cert = None, None, 0.0
-        rec = {"box": [x0, y0, x1, y1], "icon_id": icon_id, "det_conf": det_conf,
-               "source": source, "certainty": cert, "yolo": yolo, "ocr": ocr,
-               "agree": bool(yitem and oit and yitem["id"] == oit["id"])}
-        if chosen:
-            e = _entry(chosen)
-            val = value_of(chosen)
-            rec.update(e, value=val, slots=e["width"] * e["height"],
-                       per_slot=round(val / (e["width"] * e["height"])))
-            items.append(rec)
-        else:
-            unidentified.append(rec)
-    items.sort(key=lambda r: r["per_slot"], reverse=True)
-    return {"items": items, "unidentified": unidentified,
-            "detections": len(r.boxes), "identified": len(items),
-            "by_yolo": sum(1 for it in items if it["source"] == "yolo"),
-            "by_ocr": sum(1 for it in items if it["source"] == "ocr")}
+        dets.append({"icon_id": str(r.names[int(b.cls)]), "box": [x0, y0, x1, y1],
+                     "det_conf": round(float(b.conf), 3),
+                     "ocr_id": oit["id"] if oit else "", "ocr_score": round(osc, 2),
+                     "ocr_raw": raw})
+    return project(dets)
 
 
 def annotate(pil, res):
@@ -184,8 +257,8 @@ def main():
     m = YOLO(args.model)
     res = scan(Image.open(args.image).convert("RGB"), m, conf=args.conf)
     print(f"{res['detections']} detections, {res['identified']} identified "
-          f"(YOLO {res['by_yolo']} / OCR {res['by_ocr']}), "
-          f"{len(res['unidentified'])} unidentified\n")
+          f"(YOLO {res['by_yolo']} / OCR {res['by_ocr']} / override {res['by_override']}), "
+          f"{len(res['unidentified'])} unidentified · total {res['total']:,} RUB\n")
     print(f"{'KEEP (₽/slot desc)':36s} src  slots   ₽/slot      value")
     for it in res["items"][:25]:
         print(f"  {it['short'][:32]:32s} {it['source']:4s} {it['slots']:>3}  "

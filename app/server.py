@@ -147,6 +147,26 @@ def api_scan():
     return jsonify(ok=True)
 
 
+@app.route("/api/search")                        # catalog search for manual correction
+def search():
+    return jsonify(scanmod.search_items(request.args.get("q", "")))
+
+
+@app.route("/api/override", methods=["POST"])    # correct an icon-id -> item (manual event)
+def override():
+    d = request.get_json(force=True)
+    icon_id, item_id = d.get("icon_id"), d.get("item_id")
+    if not icon_id or not item_id:
+        abort(400)
+    scanmod.add_manual_link(icon_id, item_id, note=d.get("note", ""))
+    # re-project the current scan with the new link (no re-capture / re-OCR)
+    if _state.get("result"):
+        res = scanmod.project(scanmod.dets_of(_state["result"]))
+        res["ts"] = _state["ts"]
+        _set(result=res, status="done")
+    return jsonify(ok=True)
+
+
 if __name__ == "__main__":
     print("loading model...")
     get_model()

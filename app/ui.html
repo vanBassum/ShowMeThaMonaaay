@@ -35,6 +35,21 @@
            border:1px solid var(--line); border-radius:3px; vertical-align:middle; }
   .val { text-align:right; color:var(--dim); font-variant-numeric:tabular-nums; font-size:12px; }
   .empty { color:var(--dim); padding:20px; text-align:center; }
+  tbody tr { cursor:pointer; }
+  tbody tr:hover { background:var(--panel); }
+  #total { color:var(--gold); font-variant-numeric:tabular-nums; font-weight:600; }
+  #modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.6);
+           align-items:flex-start; justify-content:center; z-index:10; }
+  #box { background:var(--panel); border:1px solid var(--line); border-radius:8px;
+         margin-top:8vh; width:min(560px,92vw); max-height:80vh; display:flex; flex-direction:column; }
+  #box h3 { margin:0; padding:12px 14px; border-bottom:1px solid var(--line); font-size:14px; color:var(--gold); }
+  #q { margin:12px 14px; padding:9px 12px; background:var(--bg); border:1px solid var(--line);
+       border-radius:6px; color:var(--txt); font-size:14px; }
+  #results { list-style:none; margin:0; padding:0 6px 10px; overflow:auto; }
+  #results li { display:flex; align-items:center; gap:10px; padding:6px 8px; border-radius:6px; cursor:pointer; }
+  #results li:hover { background:var(--bg); }
+  #results .sub { color:var(--dim); font-size:12px; overflow:hidden; text-overflow:ellipsis; flex:1; }
+  #results .ps { color:var(--keep); font-variant-numeric:tabular-nums; }
 </style>
 </head>
 <body>
@@ -44,18 +59,28 @@
   <span class="kbd">F2</span>
   <a href="/compare" style="color:var(--gold);text-decoration:none">compare ▸</a>
   <span id="status">idle</span>
-  <span id="counts" style="margin-left:auto;color:var(--dim)"></span>
+  <span id="total" style="margin-left:auto"></span>
+  <span id="counts" style="color:var(--dim)"></span>
 </header>
+<div id="modal" onclick="if(event.target.id==='modal')closeModal()">
+  <div id="box">
+    <h3 id="modalTitle">Correct item</h3>
+    <input id="q" placeholder="search item name…" oninput="doSearch()" autocomplete="off">
+    <ul id="results"></ul>
+  </div>
+</div>
 <main>
   <div class="col keep"><h2>Keep — ₽/slot ↓</h2><table id="keep"></table></div>
   <div class="col ditch"><h2>Ditch — ₽/slot ↑</h2><table id="ditch"></table></div>
 </main>
 <script>
-const fmt = n => n.toLocaleString('en-US');
+const fmt = n => (n||0).toLocaleString('en-US');
+const esc = s => (s||'').replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
 function row(it, ts){
   const qty = it.qty > 1 ? ` <span class="qty">×${it.qty}</span>` : '';
   const ic = (ts && it.box) ? `<img class="ic" loading="lazy" src="/api/crop/${ts}?box=${it.box.join(',')}" onerror="this.style.opacity=.15">` : '';
-  return `<tr><td class="ic">${ic}</td>`
+  return `<tr onclick="openCorrect('${it.icon_id}','${esc(it.short||it.name)}')" title="click to correct">`
+       + `<td class="ic">${ic}</td>`
        + `<td class="nm" title="${it.name}">${it.short||it.name}${qty}</td>`
        + `<td class="sl">${it.width}×${it.height}</td>`
        + `<td class="ps">${fmt(it.per_slot)}</td>`
@@ -90,11 +115,45 @@ function applyState(s){
   if (s.result){
     const r = s.result;
     render(r.items, s.ts);
+    document.getElementById('total').textContent = 'Σ ' + fmt(r.total) + ' ₽';
     document.getElementById('counts').textContent =
-      `${r.identified}/${r.detections} identified (YOLO ${r.by_yolo} · OCR ${r.by_ocr}) · ${r.unidentified.length} unknown`;
+      `${r.identified}/${r.detections} (YOLO ${r.by_yolo} · OCR ${r.by_ocr} · fixed ${r.by_override}) · ${r.unidentified.length} unknown`;
   }
 }
 async function scanNow(){ await fetch('/api/scan',{method:'POST'}); }
+
+// --- manual correction: click a row -> search -> pick the right item (manual link event) ---
+let correctIcon = null, searchTimer = null;
+function openCorrect(iconId, label){
+  correctIcon = iconId;
+  document.getElementById('modalTitle').textContent = `Correct “${label}” (icon #${iconId})`;
+  document.getElementById('q').value = '';
+  document.getElementById('results').innerHTML = '';
+  document.getElementById('modal').style.display = 'flex';
+  document.getElementById('q').focus();
+}
+function closeModal(){ document.getElementById('modal').style.display = 'none'; correctIcon = null; }
+function doSearch(){
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(async () => {
+    const q = document.getElementById('q').value.trim();
+    if (!q){ document.getElementById('results').innerHTML = ''; return; }
+    let items; try { items = await (await fetch('/api/search?q=' + encodeURIComponent(q))).json(); }
+    catch(e){ return; }
+    document.getElementById('results').innerHTML = items.map(it =>
+      `<li onclick="pick('${it.id}')"><img class="ic" loading="lazy" src="/api/cat-icon/${it.id}" onerror="this.style.opacity=.15">`
+      + `<b>${esc(it.short||it.name)}</b><span class="sub">${esc(it.name)}</span>`
+      + `<span class="ps">${fmt(it.value)}</span></li>`).join('');
+  }, 150);
+}
+async function pick(itemId){
+  if (!correctIcon) return;
+  await fetch('/api/override', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({icon_id: correctIcon, item_id: itemId})});
+  closeModal();   // server re-projects and pushes the updated lists over SSE
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
 // server pushes updates instantly (no polling) — status the moment F2 fires, results when ready
 const ev = new EventSource('/api/stream');
 ev.onmessage = e => { try { applyState(JSON.parse(e.data)); } catch(_){} };
