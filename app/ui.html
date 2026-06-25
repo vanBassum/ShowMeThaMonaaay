@@ -52,9 +52,9 @@
 </main>
 <script>
 const fmt = n => n.toLocaleString('en-US');
-function row(it){
+function row(it, ts){
   const qty = it.qty > 1 ? ` <span class="qty">×${it.qty}</span>` : '';
-  const ic = it.id ? `<img class="ic" loading="lazy" src="/api/cat-icon/${it.id}" onerror="this.style.opacity=.15">` : '';
+  const ic = (ts && it.box) ? `<img class="ic" loading="lazy" src="/api/crop/${ts}?box=${it.box.join(',')}" onerror="this.style.opacity=.15">` : '';
   return `<tr><td class="ic">${ic}</td>`
        + `<td class="nm" title="${it.name}">${it.short||it.name}${qty}</td>`
        + `<td class="sl">${it.width}×${it.height}</td>`
@@ -71,14 +71,14 @@ function dedup(items){
   }
   return [...map.values()];
 }
-function render(items){
+function render(items, ts){
   // dedup, then SPLIT at the median so each item is in exactly one list, ~equal length
   const sorted = dedup(items).sort((a,b)=>b.per_slot-a.per_slot);
   const mid = Math.ceil(sorted.length/2);
   const keep  = sorted.slice(0, mid);            // top half, highest ₽/slot first
   const ditch = sorted.slice(mid).reverse();     // bottom half, lowest ₽/slot first
   const fill=(id,rows)=>document.getElementById(id).innerHTML =
-      rows.length ? rows.map(row).join('') : '<tr><td class="empty">—</td></tr>';
+      rows.length ? rows.map(it=>row(it,ts)).join('') : '<tr><td class="empty">—</td></tr>';
   fill('keep', keep); fill('ditch', ditch);
 }
 function applyState(s){
@@ -89,7 +89,7 @@ function applyState(s){
                  : s.status + '…';
   if (s.result){
     const r = s.result;
-    render(r.items);
+    render(r.items, s.ts);
     document.getElementById('counts').textContent =
       `${r.identified}/${r.detections} identified (YOLO ${r.by_yolo} · OCR ${r.by_ocr}) · ${r.unidentified.length} unknown`;
   }
