@@ -425,3 +425,29 @@ the same masking so train matches inference.
   under-confident* on real crops (synthetic→real calibration gap). Real labels >
   more synthetic epochs. Proposed but not yet tried: **embedding/retrieval against
   the icon gallery** (DINOv2/CLIP) instead of softmax classification.
+
+---
+
+## 2026-06-25 — full_v2 fine-tune done: overlays closed the sim-to-real gap
+
+`full_v2` = fine-tune of `full_v1/best.pt` on the regenerated synthetic set, this
+time **with in-game overlays** (random top-right name text, stack count, FiR tile,
+"marked" selection tile — all per-instance random and decorrelated from icon-id so
+the model can't cheat by reading text; that stays OCR's job, kept independent).
+3680 imgs, imgsz 1536, SGD lr0 0.01 (pinned), 32 epochs (cap), ~4.7 h.
+
+- **Synthetic val:** best ep30 mAP50 0.924 / mAP50-95 0.924 (≈ v1's 0.923).
+- **Real screenshots (the point):** stash-heavy views now **54 / 56 detections**
+  vs full_v1's ~12-26. Detected-item confidence median **0.972** (mean 0.875).
+  Gear/character screens detect few items — expected, they have few grid icons.
+  => overlay augmentation substantially closed the gap diagnosed last entry.
+- **Confidence check (unique vs ambiguous):** no exact-dup icons appeared in the
+  test stashes (they're niche keys/dogtags). Unique icons read very confidently
+  (median 0.972). A bare-icon synthetic probe was invalid (off-grid + no overlay =
+  out-of-distribution, both groups ~0.06) so it proves nothing — but by
+  construction exact-dups are unresolvable (identical pixels under N labels →
+  softmax splits). Hence the NEXT-TRAIN plan: collapse each exact-dup group to one
+  class (~3446→~3250), flag merged classes ambiguous, resolve via OCR/manual.
+
+Archived to `archive/full_v2_2026-06-25/` (MODEL_CARD + metadata committed; .pt
+gitignored). Next: collapse-dups retrain, then linking system + repo restructure.

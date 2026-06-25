@@ -10,12 +10,14 @@ Living checklist of deferred work. Newest context in LOGBOOK.md.
       ambiguous → OCR resolves which real item.
 - [ ] Optional: image-noise augmentation (deferred — JPEG/blur/brightness jitter).
 
-## After full_v2 finishes
-- [ ] Archive `full_v2` (weights + model card), like `full_v1`.
-- [ ] Eval on real session screenshots — the sim-to-real gap test (overlays +
-      square grid). Compare coverage vs `full_v1`.
-- [ ] Confidence check: unique icons (expect high) vs near-identical pairs;
-      add any YOLO-confused non-exact pairs to the OCR-fallback set.
+## After full_v2 finishes  ✅ done 2026-06-25
+- [x] Archive `full_v2` (model card + metadata; weights gitignored), like `full_v1`.
+- [x] Eval on real session screenshots — sim-to-real gap test. Stash views now
+      54-56 detections (full_v1: ~12-26); detected-item median conf 0.972.
+      Overlay augmentation substantially closed the gap.
+- [x] Confidence check: unique icons median conf 0.972 on real stashes. No
+      exact-dup icons appeared in test stashes (they're niche keys/dogtags).
+      Exact-dups are unresolvable by construction -> handled by the collapse below.
 
 ## Repo restructure
 - [ ] Execute the layout in **STRUCTURE.md** (app / tools / shared / experiments).

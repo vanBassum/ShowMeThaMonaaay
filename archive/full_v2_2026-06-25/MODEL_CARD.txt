@@ -1,0 +1,58 @@
+MODEL CARD — full_v2 (ShowMeThaMonaaay, branch yolo-without-detector)
+==================================================================
+Date trained : 2026-06-25
+Git commit   : 07f24f8
+File         : best.pt  (use this), last.pt (final epoch)
+Base model   : full_v1/best.pt  (fine-tune, NOT from scratch)
+
+WHAT IT DOES
+  Single-pass detector. Per item: bounding box + class = ICON-ID (the EFT icon
+  cache file number, NOT a real item name). Coupling icon-id -> item name/price
+  is done separately (OCR cross-check at runtime + a non-OCR link map; see
+  LINKING / STRUCTURE.md). Class idx -> icon# in classes.json; best.pt embeds
+  icon# as the class name.
+
+CLASSES
+  nc = 3446 (one per cache icon). Same class mapping as full_v1 (fine-tune).
+
+DATASET (synthetic, regenerable)  *** key difference vs full_v1 ***
+  build_dataset.py with IN-GAME OVERLAYS added (this closed the sim-to-real gap):
+    - random name text, top-right, white stroke   P=0.95
+    - stack count, bottom-right                    P=0.35
+    - found-in-raid (FiR) tile, bottom-right       P=0.30
+    - "marked" selection tile (whole-cell)         P=0.10
+  Overlays are per-instance random and DECORRELATED from icon-id (the text is
+  random chars — the model must not learn to read it; that's OCR's job and must
+  stay independent). Icons pasted on templates/screen1/background.png at grid
+  cells; grid excludes the top/bottom partially-visible rows. 3680 images.
+  Scaling of FiR/marked tiles to non-square cells is accepted as noise (decided).
+
+TRAINING
+  train.py --model full_v1/best.pt --name full_v2 --epochs 32 --imgsz 1536
+           --patience 10           (optimizer SGD, lr0 0.01 — pinned, NOT 'auto')
+  Reached the 32-epoch cap (best was ep30, early-stop point ep40 > cap).
+  ~531 s/epoch on a 12 GB GPU, ~4.7 h total.
+
+RESULTS (synthetic val, per-epoch results.csv)
+  best  (ep 30): mAP50=0.924  mAP50-95=0.924
+  final (ep 32): mAP50=0.923  mAP50-95=0.923  P=0.948  R=0.876
+  (Ultralytics' end-of-train re-validation prints higher; per-epoch is the
+   apples-to-apples number vs full_v1's 0.923.)
+
+SIM-TO-REAL (real session screenshots, conf 0.25)  *** the point of v2 ***
+  Stash-heavy views:  54 and 56 detections   (full_v1 got only ~12-26)
+  Gear/character screens (few grid items): 0-18, as expected for those views.
+  Detected-item confidence on real stashes: mean 0.875, MEDIAN 0.972, min 0.25.
+  -> The overlay augmentation substantially closed the gap. Most real stash
+     items are now detected, sharply (median conf ~0.97).
+
+DUPLICATE / AMBIGUOUS ICONS
+  236 icon-ids (6%) are byte-identical to another icon (exact-dup groups in
+  data/icon_dups.json: keys, dogtags, variants). None appeared in the test
+  stashes. By construction the model CANNOT tell exact-dups apart (identical
+  pixels trained under N labels -> softmax splits -> arbitrary class among the
+  group). NEXT TRAIN collapses each group to one class (~3446 -> ~3250); those
+  merged classes are flagged ambiguous and resolved by OCR/manual at runtime.
+
+HOW TO USE
+  python predict.py "path/to/shot.png" --model archive/full_v2_2026-06-25/best.pt --conf 0.25
