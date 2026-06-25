@@ -22,6 +22,8 @@ def main():
     # standard YOLO setting and is independent of class count.
     ap.add_argument("--optimizer", default="SGD")
     ap.add_argument("--lr0", type=float, default=0.01)
+    ap.add_argument("--patience", type=int, default=100,
+                    help="early-stop after N epochs without val improvement")
     args = ap.parse_args()
 
     model = YOLO(args.model)
@@ -33,6 +35,7 @@ def main():
         name=args.name,
         optimizer=args.optimizer,
         lr0=args.lr0,
+        patience=args.patience,
         # icons don't flip/rotate in-game; keep geometry, let color jitter do the work
         fliplr=0.0, flipud=0.0, degrees=0.0, scale=0.1, mosaic=0.0,
     )
