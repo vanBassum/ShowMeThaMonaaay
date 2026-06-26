@@ -1,10 +1,13 @@
 import { AppShell } from "@/components/shell/AppShell"
+import { FixesProvider } from "@/lib/fixes"
 import { ServerStateProvider } from "@/lib/server-state"
 
 export function App() {
   return (
     <ServerStateProvider>
-      <AppShell />
+      <FixesProvider>
+        <AppShell />
+      </FixesProvider>
     </ServerStateProvider>
   )
 }

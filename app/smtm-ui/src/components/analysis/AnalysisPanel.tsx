@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useState } from "react"
 import { Check, Copy, Loader2, ScanSearch } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -12,25 +12,10 @@ import {
 } from "@/components/ui/dialog"
 import { cn, formatSessionTs } from "@/lib/utils"
 import { useServerState, type ScanItem } from "@/lib/server-state"
-import { CorrectionDialog, type Flag } from "./CorrectionDialog"
+import { boxKey, useFixes, type Flag } from "@/lib/fixes"
+import { CorrectionDialog } from "./CorrectionDialog"
 
 const RUB = (n: number) => n.toLocaleString("en-US")
-const boxKey = (b: number[]) => b.join(",")
-
-// YOLO sometimes emits two boxes for one item (different icon-id, near-identical box).
-// Treat boxes above this overlap as the same physical item so a fix applies to both.
-const DUP_IOU = 0.6
-function iou(a: number[], b: number[]) {
-  const ix0 = Math.max(a[0], b[0]),
-    iy0 = Math.max(a[1], b[1]),
-    ix1 = Math.min(a[2], b[2]),
-    iy1 = Math.min(a[3], b[3])
-  const inter = Math.max(0, ix1 - ix0) * Math.max(0, iy1 - iy0)
-  if (!inter) return 0
-  const union =
-    (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
-  return union ? inter / union : 0
-}
 
 /** One detection drawn over the screenshot. Boxes are in source-image pixels, so we
  *  position them as percentages of the natural size — exact at any display scale.
@@ -194,55 +179,18 @@ function PropagateDialog({
 
 export function AnalysisPanel({ onOpenSessions }: { onOpenSessions: () => void }) {
   const { state } = useServerState()
+  const { flags, flagList, dirty, saving, allBoxes, applyFlags, removeFlags, save } =
+    useFixes()
   const ts = state?.ts ?? null
   const result = state?.result ?? null
   const [nat, setNat] = useState<{ w: number; h: number } | null>(null)
-  const [flags, setFlags] = useState<Record<string, Flag>>({})
   const [editing, setEditing] = useState<ScanItem | null>(null)
   const [propagate, setPropagate] = useState<{
     iconId: string
-    corrected: { item_id: string; name: string }
+    corrected: NonNullable<Flag["corrected"]>
     boxes: ScanItem[]
     preselected: Set<string> // boxKeys checked by default (the not-yet-adjusted ones)
   } | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [dirty, setDirty] = useState(false) // unsaved changes since the last load/save
-
-  // Fixes belong to one session — load that session's saved fixes when it changes.
-  useEffect(() => {
-    setPropagate(null)
-    if (!ts) {
-      setFlags({})
-      setDirty(false)
-      return
-    }
-    let cancelled = false
-    void (async () => {
-      try {
-        const res = await fetch(`/api/session/${ts}/fixes`)
-        const data = (await res.json()) as { flags?: Flag[] }
-        if (cancelled) return
-        const rec: Record<string, Flag> = {}
-        for (const f of data.flags ?? []) rec[boxKey(f.box)] = f
-        setFlags(rec)
-        setDirty(false)
-      } catch {
-        if (!cancelled) {
-          setFlags({})
-          setDirty(false)
-        }
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [ts])
-
-  // All detections on this screenshot (identified + unidentified), in one list.
-  const allBoxes = useMemo(
-    () => (result ? [...result.items, ...result.unidentified] : []),
-    [result]
-  )
 
   if (!ts || !result) {
     return (
@@ -265,30 +213,8 @@ export function AnalysisPanel({ onOpenSessions }: { onOpenSessions: () => void }
     )
   }
 
-  const flagList = Object.values(flags)
-
-  // Apply a flag to a box AND to any duplicate detection of it (same item, double-
-  // detected), so a fix doesn't leave a red twin box behind.
-  const setFlagWithDuplicates = (flag: Flag, base: Record<string, Flag>) => {
-    const next = { ...base, [boxKey(flag.box)]: flag }
-    for (const b of allBoxes) {
-      if (boxKey(b.box) === boxKey(flag.box)) continue
-      if (iou(b.box, flag.box) >= DUP_IOU) {
-        next[boxKey(b.box)] = {
-          ...flag,
-          box: b.box,
-          icon_id: b.icon_id,
-          shown: { item_id: b.id, name: b.name },
-        }
-      }
-    }
-    return next
-  }
-
   const saveFlag = (flag: Flag) => {
-    const next = setFlagWithDuplicates(flag, flags)
-    setFlags(next)
-    setDirty(true)
+    applyFlags([flag])
     setEditing(null)
     // Offer to apply the same fix to other boxes YOLO gave the same icon-id. Already-
     // adjusted siblings are shown too but start deselected (so we don't overwrite them).
@@ -297,7 +223,7 @@ export function AnalysisPanel({ onOpenSessions }: { onOpenSessions: () => void }
         (b) => b.icon_id === flag.icon_id && boxKey(b.box) !== boxKey(flag.box)
       )
       const preselected = new Set(
-        siblings.filter((b) => !next[boxKey(b.box)]).map((b) => boxKey(b.box))
+        siblings.filter((b) => !flags[boxKey(b.box)]).map((b) => boxKey(b.box))
       )
       if (preselected.size) {
         setPropagate({
@@ -312,54 +238,22 @@ export function AnalysisPanel({ onOpenSessions }: { onOpenSessions: () => void }
 
   const clearFlag = () => {
     if (!editing) return
-    setFlags((f) => {
-      const next = { ...f }
-      delete next[boxKey(editing.box)]
-      return next
-    })
-    setDirty(true)
+    removeFlags([editing.box])
     setEditing(null)
   }
 
   const applyPropagation = (chosen: ScanItem[]) => {
     if (!propagate) return
-    setFlags((f) => {
-      let next = { ...f }
-      for (const b of chosen) {
-        next = setFlagWithDuplicates(
-          {
-            box: b.box,
-            icon_id: b.icon_id,
-            type: "wrong_item",
-            shown: { item_id: b.id, name: b.name },
-            corrected: propagate.corrected,
-          },
-          next
-        )
-      }
-      return next
-    })
-    setDirty(true)
+    applyFlags(
+      chosen.map((b) => ({
+        box: b.box,
+        icon_id: b.icon_id,
+        type: "wrong_item" as const,
+        shown: { item_id: b.id, name: b.name },
+        corrected: propagate.corrected,
+      }))
+    )
     setPropagate(null)
-  }
-
-  // Persist this session's fixes (≤1 set per session, stored with the session).
-  const saveFixes = async () => {
-    if (!ts) return
-    setSaving(true)
-    try {
-      const res = await fetch(`/api/session/${ts}/fixes`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ flags: flagList }),
-      })
-      const data = (await res.json()) as { ok: boolean }
-      if (data.ok) setDirty(false)
-    } catch {
-      /* backend offline */
-    } finally {
-      setSaving(false)
-    }
   }
 
   return (
@@ -388,7 +282,7 @@ export function AnalysisPanel({ onOpenSessions }: { onOpenSessions: () => void }
             type="button"
             size="sm"
             variant="outline"
-            onClick={() => void saveFixes()}
+            onClick={() => void save()}
             disabled={!dirty || saving}
             className={cn(
               dirty &&

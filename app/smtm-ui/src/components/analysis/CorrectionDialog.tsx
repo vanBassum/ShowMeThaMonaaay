@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
+import { type Flag } from "@/lib/fixes"
 import type { ScanItem } from "@/lib/server-state"
 
 const RUB = (n: number) => n.toLocaleString("en-US")
@@ -24,16 +25,6 @@ type Hit = {
   width: number
   height: number
   value: number
-}
-
-/** What the user decided about one box. `corrected` set => "should be X";
- *  type "not_an_item" => false positive. */
-export type Flag = {
-  box: [number, number, number, number]
-  icon_id: string
-  type: "wrong_item" | "not_an_item"
-  shown?: { item_id?: string; name?: string }
-  corrected?: { item_id: string; name: string }
 }
 
 /** Dialog to fix what a detected box SHOULD be. Searches the catalog and records a flag
@@ -88,7 +79,15 @@ export function CorrectionDialog({
       icon_id: item.icon_id,
       type: "wrong_item",
       shown: { item_id: item.id, name: item.name },
-      corrected: { item_id: h.id, name: h.name },
+      // carry the catalog facts so the scan list can re-value the corrected item
+      corrected: {
+        item_id: h.id,
+        name: h.name,
+        short: h.short,
+        value: h.value,
+        width: h.width,
+        height: h.height,
+      },
     })
 
   const markNotItem = () =>
