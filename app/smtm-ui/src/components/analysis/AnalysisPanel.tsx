@@ -69,9 +69,10 @@ function Box({
       <span
         className={cn(
           "pointer-events-none absolute -top-px left-0 max-w-[40vw] -translate-y-full truncate rounded-t px-1 py-0.5 text-[10px] font-medium whitespace-nowrap text-white",
-          // Fixed boxes stay coloured but their label is hover-only (less clutter);
-          // only the orange "same id?" candidate hints stay persistent.
-          candidate ? "block" : "hidden group-hover:block",
+          // Labels are hover-only to keep the screenshot clear; the box fill colour
+          // (amber=fixed, orange=candidate, emerald/red=identified/unidentified) is the
+          // at-a-glance state.
+          "hidden group-hover:block",
           flagged
             ? flag.type === "not_an_item"
               ? "bg-red-600"
@@ -156,9 +157,11 @@ function PropagateDialog({
                 onClick={() => toggle(i)}
                 title={on ? "Selected — click to skip" : "Skipped — click to include"}
                 className={cn(
+                  // Ring sits AROUND the crop (not over it) so the image is always fully
+                  // shown; deselected crops dim + desaturate.
                   "aspect-square overflow-hidden rounded bg-muted transition-all",
                   on
-                    ? "ring-2 ring-amber-500 ring-inset"
+                    ? "ring-2 ring-amber-500 ring-offset-1 ring-offset-card"
                     : "opacity-35 grayscale hover:opacity-60"
                 )}
               >
