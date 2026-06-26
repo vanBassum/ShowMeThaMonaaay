@@ -16,7 +16,7 @@ type SessionCard = {
 const RUB = (n: number) => n.toLocaleString("en-US")
 
 export function SessionsPanel() {
-  const { state, refresh } = useServerState()
+  const { state, refresh: refreshState } = useServerState()
   const [sessions, setSessions] = useState<SessionCard[]>([])
   const [loading, setLoading] = useState(true)
   const activeTs = state?.ts ?? null
@@ -42,7 +42,7 @@ export function SessionsPanel() {
       // Load the session into state and stay here — the top-bar chip (and the Analysis
       // tab) are how you then open it. The clicked card shows a "loaded" badge.
       await fetch(`/api/load-session/${ts}`, { method: "POST" })
-      await refresh() // reflect the new loaded state now (don't wait for the SSE push)
+      await refreshState() // reflect the new loaded state now (don't wait for the SSE push)
     } catch {
       /* backend offline */
     }
