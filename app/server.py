@@ -15,6 +15,7 @@ from PIL import ImageGrab, Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)                            # repo root (anchor file paths here)
+WEB = os.path.join(HERE, "frontend")                    # html (react later) — served by Flask
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "tools"))         # for fetch_items (price refresh)
 import scan as scanmod      # noqa: E402
@@ -172,7 +173,7 @@ def save_correction(ts, icon_id, item_id):
 
 @app.route("/")
 def index():
-    return send_file(os.path.join(HERE, "ui.html"))
+    return send_file(os.path.join(WEB, "ui.html"))
 
 
 @app.route("/api/latest")
@@ -200,12 +201,12 @@ def stream():
 
 @app.route("/compare")
 def compare():
-    return send_file(os.path.join(HERE, "compare.html"))
+    return send_file(os.path.join(WEB, "compare.html"))
 
 
 @app.route("/inspect")
 def inspect():
-    return send_file(os.path.join(HERE, "inspect.html"))
+    return send_file(os.path.join(WEB, "inspect.html"))
 
 
 @app.route("/api/raw/<ts>")                      # full screenshot for the inspector

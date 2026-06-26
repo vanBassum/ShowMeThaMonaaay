@@ -1,7 +1,7 @@
 # ShowMeThaMonaaay — project instructions
 
 Tarkov inventory valuer: screenshot → detect items → identify → rank by ₽/slot.
-See `STATUS.md` for architecture and current state.
+See `docs/STRUCTURE.md` for architecture and current state.
 
 ## Logbook (always maintain)
 

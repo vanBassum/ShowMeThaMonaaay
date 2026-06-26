@@ -52,6 +52,11 @@ Living checklist of deferred work. Newest context in LOGBOOK.md.
       writes a `manual` link event). Links still come from non-OCR sources
       (keep YOLO ⊥ OCR independent).
 
+## UI bugs / polish (from idea.txt)
+- [ ] **Price not re-valued after a manual correction?** Verify `/api/override`
+      re-projects and the new ₽/slot shows in the UI (it should call `project()`).
+- [ ] Make the unidentified ("fluke") boxes see-through / less of an eyesore.
+
 ## Minor / nice-to-have
 - [ ] Marked overlay: cut each tile's bottom-left category glyph, stamp
       unstretched (instead of the whole stretched tile). Low priority (noise).

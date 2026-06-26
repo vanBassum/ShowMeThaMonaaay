@@ -5,6 +5,30 @@ See `CLAUDE.md` for the format rule.
 
 ---
 
+## 2026-06-26 — Repo cleanup: frontend folder, docs/, dead-code removal (`yolo-without-detector`)
+
+**What.** Tidy pass ahead of the exe-packaging direction. (1) HTML moved to
+`app/frontend/` (React lands here later); `server.py` serves from a new `WEB` const.
+(2) Deleted dead `app/ocr.py` (classifier-autolabel OCR, superseded by `ocr_identify.py`,
+imported by nothing). (3) Moved dev docs into `docs/` (STRUCTURE, MODELS, KAGGLE, TODO);
+README/CLAUDE/LOGBOOK stay at root. (4) Rewrote the stale `README.md` (its pipeline table
+referenced ~10 files that no longer exist) to match the real YOLO+OCR pipeline and state
+the exe/GitHub-Actions/runtime-model-download direction. (5) Folded `idea.txt` scratch
+notes into `docs/TODO.md` (price-after-correction check, see-through fluke boxes) and
+deleted it. (6) Fixed `CLAUDE.md` `STATUS.md` → `docs/STRUCTURE.md`.
+
+**Why.** Separate "the product" (`app/` = engine+backend+frontend) from dev-only tooling,
+and clear out junk before building CI packaging on top.
+
+**Result (works).** Kept `app/` Python flat (per request); only the 3 `send_file` paths
+changed. Smoke test: `server.py` imports clean, `WEB` resolves, all 3 frontend files found,
+`scan`/`fetch_items` import. No engine/backend logic touched.
+
+**Next.** GitHub Actions exe build; model download-on-first-run from release artifacts;
+session-storage policy + report-to-server for missed/wrong items (all in `docs/TODO.md`).
+
+---
+
 ## 2026-06-25 — Price-basis toggle: 24h avg vs latest flea low (`yolo-without-detector`)
 
 **What.** Header selector in the valuer to pick which flea price drives ₽/slot:

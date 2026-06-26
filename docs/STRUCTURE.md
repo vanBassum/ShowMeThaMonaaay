@@ -10,12 +10,15 @@ as-built layout (one deviation from the original plan, noted below).
 ## Layout
 
 ```
-app/          # runtime: used while gaming + manual adjustments
-  ocr.py            ocr_identify.py        # live identification (OCR POV)
-  scan.py                                  # screenshot -> YOLO boxes -> OCR-in-box -> ₽/slot
-  server.py         ui.html                # F2 hotkey -> scan; two lists (keep/ditch)
+app/          # THE PRODUCT (engine + backend + frontend) — used while gaming.
+              # This is what will ship in the exe (GitHub Actions, later).
+  ocr_identify.py                          # identification: read printed name -> catalog item
+  scan.py                                  # engine: screenshot -> YOLO boxes -> OCR-in-box -> ₽/slot
+  server.py                                # backend: Flask, F2 hotkey -> scan, SSE, correction API
+  frontend/                                # the UI — plain HTML now, React later
+    ui.html  compare.html  inspect.html    # keep/ditch lists · icon compare · session inspector
 
-tools/        # one-time / offline
+tools/        # one-time / offline (dev-only, NOT shipped)
   build_dataset.py   train.py             # synthetic dataset gen + YOLO training
   fetch_items.py                          # pull tarkov.dev catalog
   grid_server.py     grid_editor.html     # grid calibration
@@ -36,12 +39,16 @@ experiments/  # throwaway exploration ("tests")
   match_icons.py + icon_map.py review      # the visual-match attempt (demoted)
   dups_*.html, icon_review.html, out/*     # algorithm comparisons, debug images
   Examples/
+
+docs/         # project docs (this file, MODELS.md, KAGGLE.md, TODO.md)
+              # README.md / CLAUDE.md / LOGBOOK.md stay at the repo root
 ```
 
 Old dead-pipeline files (`cls.py`, `cls_model.py`, `train_cls.py`, `retrieval.py`,
 `detect_items.py`, `mask_pipeline.py`, `gen_synth.py`, `gen_screenshot.py`,
-`make_dataset.py`, `extract_overlays.py`, `autolabel.py`) stay deleted — in git
-history if ever needed.
+`make_dataset.py`, `extract_overlays.py`, `autolabel.py`, and `app/ocr.py` — the
+classifier-autolabel OCR, superseded by `app/ocr_identify.py`) stay deleted — in
+git history if ever needed.
 
 ## Database: JSON / JSONL (not SQLite, for now)
 

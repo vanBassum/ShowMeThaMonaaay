@@ -1,39 +1,55 @@
 # ShowMeThaMonaaay
 
-Tarkov (PvE) inventory valuer — screenshot your inventory/loot, identify items, and
-rank them by **₽-per-slot** so you can decide what to keep and what to ditch.
+Tarkov (PvE) inventory valuer — screenshot your stash/loot, detect and identify the
+items, and rank them by **₽-per-slot** so you can decide what to keep and what to ditch.
 
-Calibrated for **2560×1440**.
+Calibrated for **2560×1440**, Windows (uses the built-in Windows OCR).
 
-## Setup
+## How it works
+
+A screenshot goes through a two-part pipeline that keeps detection and identification
+independent:
+
+1. **Detect (engine)** — a YOLO model finds every item box and its icon-id.
+2. **Identify** — OCR reads the item name printed *inside each box* and matches it to the
+   tarkov.dev catalog (price + grid size). A non-OCR `icon-id → item` link map is the
+   primary identity; OCR is the cross-check and the trigger for manual corrections.
+3. **Value** — `₽/slot = price / (width × height)` from the catalog, ranked KEEP↓ / DITCH↑.
+
+See [docs/STRUCTURE.md](docs/STRUCTURE.md) for the full architecture and the linking model.
+
+## Layout
+
+| Path | What |
+|------|------|
+| `app/` | **the product** — engine ([scan.py](app/scan.py), [ocr_identify.py](app/ocr_identify.py)), backend ([server.py](app/server.py)), frontend ([app/frontend/](app/frontend/)) |
+| `tools/` | dev-only / offline: dataset gen, training, catalog fetch, grid calibration |
+| `shared/` | curated tracked inputs: models, link "database", templates, overlays |
+| `experiments/` | throwaway exploration |
+| `docs/` | [STRUCTURE](docs/STRUCTURE.md) · [MODELS](docs/MODELS.md) · [KAGGLE](docs/KAGGLE.md) · [TODO](docs/TODO.md) |
+| `LOGBOOK.md` | dated experiment log (what worked / what didn't) |
+
+`data/`, `out/`, `runs/`, `sessions/`, `gallery/`, and `*.pt` weights are gitignored
+(regenerable or downloaded).
+
+## Run it (dev)
 
 ```bash
 pip install -r requirements.txt
-python fetch_items.py      # download item metadata + grid icons from tarkov.dev (PvE flea prices)
-python build_hashes.py     # build the perceptual-hash + colour-signature DB
+python tools/fetch_items.py      # tarkov.dev catalog -> data/items.json + data/icons/ (PvE flea)
+# place a trained detector at shared/models/best.pt  (see docs/MODELS.md)
+python app/server.py             # then open http://127.0.0.1:5001 and press F2 to scan
 ```
 
-`data/` (icons + hashes) and `out/` (debug overlays) are gitignored — regenerate with the two commands above.
+> Run scripts **from the repo root** — paths like `data/`, `sessions/` resolve relative to CWD.
+> Run Tarkov in **borderless/windowed** mode (exclusive fullscreen can capture black).
 
-## Pipeline
+## Direction
 
-| Stage | File | What it does |
-|-------|------|--------------|
-| Fetch | `fetch_items.py` | tarkov.dev GraphQL → `data/items.json` + `data/icons/*.webp` (PvE flea) |
-| Hash DB | `build_hashes.py` / `iconlib.py` | pHash/dHash/aHash + 8×8 colour signature per icon |
-| Identify | `identify.py` | vectorised match of a crop against the DB, filtered by cell footprint |
-| OCR | `ocr.py` | Windows OCR (winsdk) — reads cell name text + container headers |
-| Capture | `capture.py` | grab the screen to `screenshots/` |
-| Container map | `containers.py` + `detectors.py` | OCR headers → split into panels → per-type static box for slots, header-to-header bounds for grids |
-| Grid finder | `gridfinder.py` | find the cell grid (and sub-grid outlines) inside a container box |
-| Single-grid valuer | `analyze.py` | stash-style single grid → segment → identify → ₽/slot table |
-| UI | `ui.py` | always-on-top window, **F2** to scan and list items by ₽/slot with icons |
-
-## Status / notes
-
-- **Container detection** (slots + grids, 3-panel split) works well on the GEAR/loadout screen.
-- **Sub-grid outlining** (e.g. a rig's individual mag pouches) via Canny contours + lattice snapping — separates adjacent identical items.
-- Prices are tarkov.dev **PvE flea** averages; weapons (custom builds) are excluded from valuation.
-- Grid layout is calibrated for 2560×1440 (`detectors.GEOM`).
+The goal is a single distributable: **GitHub Actions builds an exe** bundling the engine +
+backend + frontend (React, replacing the HTML in `app/frontend/`). The trained model lives in
+GitHub release artifacts and is **downloaded on first run**, so the binary stays small. Users
+will be able to report missed / wrongly-identified items back to a server to feed future
+training. All of this is incremental — tracked in [docs/TODO.md](docs/TODO.md).
 
 🤖 Built iteratively with Claude Code.
