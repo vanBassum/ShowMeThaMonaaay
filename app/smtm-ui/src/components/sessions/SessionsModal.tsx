@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { History, ImagePlus, Loader2, RotateCw, Wrench } from "lucide-react"
+import { History, ImagePlus, Loader2, RotateCw, Trash2, Wrench } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -63,6 +63,17 @@ export function SessionsModal({
       await fetch(`/api/load-session/${ts}`, { method: "POST" })
       await refreshState() // reflect the new loaded state now (don't wait for the SSE push)
       onOpenChange(false)
+    } catch {
+      /* backend offline */
+    }
+  }
+
+  const del = async (ts: string) => {
+    if (!window.confirm("Delete this session permanently? This can't be undone.")) return
+    try {
+      await fetch(`/api/session/${ts}`, { method: "DELETE" })
+      if (ts === activeTs) await refreshState() // backend cleared the loaded view
+      await refresh()
     } catch {
       /* backend offline */
     }
@@ -173,54 +184,67 @@ export function SessionsModal({
         ) : (
           <div className="grid min-h-0 flex-1 grid-cols-2 content-start gap-3 overflow-y-auto pr-1 sm:grid-cols-3 lg:grid-cols-4">
             {sessions.map(({ id: ts, total, identified, detections, fixes }) => (
-              <button
-                key={ts}
-                type="button"
-                onClick={() => void load(ts)}
-                title={formatSessionTs(ts)}
-                className={cn(
-                  "group flex flex-col overflow-hidden rounded-lg border bg-card text-left shadow-sm transition-colors hover:border-amber-500/50",
-                  ts === activeTs && "border-amber-500/60 ring-1 ring-amber-500/40"
-                )}
-              >
-                <div className="relative aspect-video w-full overflow-hidden bg-muted">
-                  <img
-                    src={`/api/raw/${ts}`}
-                    alt=""
-                    loading="lazy"
-                    className="size-full object-cover transition-transform group-hover:scale-[1.03]"
-                  />
-                  {total != null && (
-                    <Badge className="absolute bottom-1 right-1 bg-black/65 tabular-nums text-white">
-                      ₽{RUB(total)}
-                    </Badge>
+              <div key={ts} className="group relative">
+                <button
+                  type="button"
+                  onClick={() => void load(ts)}
+                  title={formatSessionTs(ts)}
+                  className={cn(
+                    "flex w-full flex-col overflow-hidden rounded-lg border bg-card text-left shadow-sm transition-colors hover:border-amber-500/50",
+                    ts === activeTs && "border-amber-500/60 ring-1 ring-amber-500/40"
                   )}
-                  {ts === activeTs && (
-                    <Badge className="absolute left-1 top-1 bg-amber-500 text-black">
-                      loaded
-                    </Badge>
-                  )}
-                  {fixes > 0 && (
-                    <Badge
-                      title={`${fixes} saved fix${fixes === 1 ? "" : "es"}`}
-                      className="absolute right-1 top-1 gap-0.5 bg-amber-500/90 text-black"
-                    >
-                      <Wrench className="size-2.5" />
-                      {fixes}
-                    </Badge>
-                  )}
-                </div>
-                <div className="flex items-center justify-between gap-2 px-2 py-1.5">
-                  <span className="truncate text-[11px] tabular-nums text-muted-foreground">
-                    {formatSessionTs(ts)}
-                  </span>
-                  {identified != null && detections != null && (
-                    <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-                      {identified}/{detections}
+                >
+                  <div className="relative aspect-video w-full overflow-hidden bg-muted">
+                    <img
+                      src={`/api/raw/${ts}`}
+                      alt=""
+                      loading="lazy"
+                      className="size-full object-cover transition-transform group-hover:scale-[1.03]"
+                    />
+                    {total != null && (
+                      <Badge className="absolute bottom-1 right-1 bg-black/65 tabular-nums text-white">
+                        ₽{RUB(total)}
+                      </Badge>
+                    )}
+                    {ts === activeTs && (
+                      <Badge className="absolute left-1 top-1 bg-amber-500 text-black">
+                        loaded
+                      </Badge>
+                    )}
+                    {fixes > 0 && (
+                      <Badge
+                        title={`${fixes} saved fix${fixes === 1 ? "" : "es"}`}
+                        className="absolute bottom-1 left-1 gap-0.5 bg-amber-500/90 text-black"
+                      >
+                        <Wrench className="size-2.5" />
+                        {fixes}
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between gap-2 px-2 py-1.5">
+                    <span className="truncate text-[11px] tabular-nums text-muted-foreground">
+                      {formatSessionTs(ts)}
                     </span>
-                  )}
-                </div>
-              </button>
+                    {identified != null && detections != null && (
+                      <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+                        {identified}/{detections}
+                      </span>
+                    )}
+                  </div>
+                </button>
+                {/* hover-only delete; stops the click from also loading the session */}
+                <button
+                  type="button"
+                  title="Delete session"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    void del(ts)
+                  }}
+                  className="absolute right-1 top-1 z-10 hidden rounded-md bg-black/60 p-1 text-white/90 transition-colors hover:bg-red-600 hover:text-white group-hover:block"
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              </div>
             ))}
           </div>
         )}

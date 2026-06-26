@@ -9,7 +9,7 @@ Notes:
   (exclusive fullscreen can grab black).
 - Model + OCR are loaded once; a scan takes a few seconds (OCR per detected box).
 """
-import os, sys, io, json, time, threading, argparse, logging
+import os, sys, io, json, time, threading, argparse, logging, shutil
 from functools import lru_cache
 from flask import Flask, jsonify, send_file, request, abort, Response
 from PIL import ImageGrab, Image
@@ -278,6 +278,23 @@ def session_fixes(ts):
     json.dump(data, open(p, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
     print(f"fixes saved: {ts} ({len(flags)} fix(es))")
     return jsonify(ok=True, count=len(flags))
+
+
+@app.route("/api/session/<ts>", methods=["DELETE"])     # delete a saved session
+def delete_session(ts):
+    """Remove a session's folder (raw/scan/fixes) from disk. If it's the one currently
+    loaded into state, clear the view too."""
+    sess = os.path.join(SESSIONS, ts)
+    # guard against path traversal — only ever delete a direct child of SESSIONS
+    if os.path.dirname(os.path.normpath(sess)) != os.path.normpath(SESSIONS):
+        abort(400)
+    if not os.path.isdir(sess):
+        abort(404)
+    shutil.rmtree(sess, ignore_errors=True)
+    print(f"session deleted: {ts}")
+    if _state.get("ts") == ts:                           # the deleted one was on screen
+        _set(status="idle", result=None, ts=None, error=None)
+    return jsonify(ok=True)
 
 
 @app.route("/api/stream")           # Server-Sent Events: push state on every change
