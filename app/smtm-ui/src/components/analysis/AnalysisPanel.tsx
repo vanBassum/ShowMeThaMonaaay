@@ -69,7 +69,9 @@ function Box({
       <span
         className={cn(
           "pointer-events-none absolute -top-px left-0 max-w-[40vw] -translate-y-full truncate rounded-t px-1 py-0.5 text-[10px] font-medium whitespace-nowrap text-white",
-          flagged || candidate ? "block" : "hidden group-hover:block",
+          // Fixed boxes stay coloured but their label is hover-only (less clutter);
+          // only the orange "same id?" candidate hints stay persistent.
+          candidate ? "block" : "hidden group-hover:block",
           flagged
             ? flag.type === "not_an_item"
               ? "bg-red-600"
