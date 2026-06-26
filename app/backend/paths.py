@@ -65,5 +65,12 @@ def reports_dir() -> Path:
     return _sub("reports")
 
 
+def catalog_icons_dir() -> Path:
+    """Catalog (grid) icons fetched from tarkov.dev, cached per-user. Lazily filled on
+    demand by the server so the item picker/compare have icons without a giant upfront
+    download; a shipped baseline (data/icons) is still served first if present."""
+    return _sub("icons")
+
+
 if __name__ == "__main__":
     print(f"data dir: {data_dir()}")

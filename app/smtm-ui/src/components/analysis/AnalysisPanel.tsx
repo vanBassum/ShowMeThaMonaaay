@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react"
-import { Check, Loader2, ScanSearch } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { Check, Copy, Loader2, ScanSearch } from "lucide-react"
 
 import { cn, formatSessionTs } from "@/lib/utils"
 import { useServerState, type ScanItem } from "@/lib/server-state"
@@ -11,18 +11,23 @@ const boxKey = (b: number[]) => b.join(",")
 
 /** One detection drawn over the screenshot. Boxes are in source-image pixels, so we
  *  position them as percentages of the natural size — exact at any display scale.
- *  Click to report what the box should be (flag); flagged boxes turn amber. */
+ *  Click to report what the box should be. Colour states:
+ *    emerald/red = identified/unidentified (unflagged)
+ *    amber (solid) = flagged "should be X"   ·   red (solid) = flagged "not an item"
+ *    orange (dashed) = candidate — same detected id as something you already fixed */
 function Box({
   item,
   nat,
   identified,
   flag,
+  candidate,
   onClick,
 }: {
   item: ScanItem
   nat: { w: number; h: number }
   identified: boolean
   flag?: Flag
+  candidate?: string
   onClick: () => void
 }) {
   const [x0, y0, x1, y1] = item.box
@@ -37,9 +42,11 @@ function Box({
     ? flag.type === "not_an_item"
       ? "✕ not an item"
       : `→ ${flag.corrected?.name ?? ""}`
-    : identified
-      ? `${item.name}${item.per_slot != null ? ` · ₽${RUB(item.per_slot)}/sl` : ""}`
-      : `unidentified (${item.icon_id})`
+    : candidate
+      ? `same id → ${candidate}?`
+      : identified
+        ? `${item.name}${item.per_slot != null ? ` · ₽${RUB(item.per_slot)}/sl` : ""}`
+        : `unidentified (${item.icon_id})`
   return (
     <button
       type="button"
@@ -50,9 +57,11 @@ function Box({
           ? flag.type === "not_an_item"
             ? "border-red-400 bg-red-500/25"
             : "border-amber-400 bg-amber-400/25"
-          : identified
-            ? "border-emerald-500/80 hover:bg-emerald-500/20"
-            : "border-red-500/80 hover:bg-red-500/20"
+          : candidate
+            ? "border-dashed border-orange-400 bg-orange-400/25 hover:bg-orange-400/35"
+            : identified
+              ? "border-emerald-500/80 hover:bg-emerald-500/20"
+              : "border-red-500/80 hover:bg-red-500/20"
       )}
       style={style}
       title={label}
@@ -60,19 +69,85 @@ function Box({
       <span
         className={cn(
           "pointer-events-none absolute -top-px left-0 max-w-[40vw] -translate-y-full truncate rounded-t px-1 py-0.5 text-[10px] font-medium whitespace-nowrap text-white",
-          flagged ? "block" : "hidden group-hover:block",
+          flagged || candidate ? "block" : "hidden group-hover:block",
           flagged
             ? flag.type === "not_an_item"
               ? "bg-red-600"
               : "bg-amber-600"
-            : identified
-              ? "bg-emerald-600"
-              : "bg-red-600"
+            : candidate
+              ? "bg-orange-500"
+              : identified
+                ? "bg-emerald-600"
+                : "bg-red-600"
         )}
       >
         {label}
       </span>
     </button>
+  )
+}
+
+/** After fixing one box, ask whether the other boxes with the SAME detected icon-id are
+ *  the same item — so a user can fix all duplicates in one click. */
+function PropagateDialog({
+  ts,
+  name,
+  boxes,
+  onApply,
+  onSkip,
+}: {
+  ts: string
+  name: string
+  boxes: ScanItem[]
+  onApply: () => void
+  onSkip: () => void
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      onClick={onSkip}
+    >
+      <div
+        className="w-full max-w-md rounded-lg border bg-card p-4 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <Copy className="size-4 text-orange-500" />
+          {boxes.length} other box{boxes.length === 1 ? "" : "es"} have the same detected
+          id
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          They're highlighted orange. Are they also{" "}
+          <span className="font-medium text-foreground">{name}</span>?
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {boxes.map((it, i) => (
+            <img
+              key={i}
+              src={`/api/crop/${ts}?box=${it.box.join(",")}`}
+              alt=""
+              className="size-12 rounded border bg-muted object-contain"
+            />
+          ))}
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onSkip}
+            className="rounded-md border px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent"
+          >
+            Just this one
+          </button>
+          <button
+            type="button"
+            onClick={onApply}
+            className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-600 hover:bg-amber-500/20 dark:text-amber-400"
+          >
+            Mark all {boxes.length} as {name}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -83,6 +158,11 @@ export function AnalysisPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
   const [nat, setNat] = useState<{ w: number; h: number } | null>(null)
   const [flags, setFlags] = useState<Record<string, Flag>>({})
   const [editing, setEditing] = useState<ScanItem | null>(null)
+  const [propagate, setPropagate] = useState<{
+    iconId: string
+    corrected: { item_id: string; name: string }
+    boxes: ScanItem[]
+  } | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState<string | null>(null)
 
@@ -90,7 +170,24 @@ export function AnalysisPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
   useEffect(() => {
     setFlags({})
     setSaved(null)
+    setPropagate(null)
   }, [ts])
+
+  // All detections on this screenshot (identified + unidentified), in one list.
+  const allBoxes = useMemo(
+    () => (result ? [...result.items, ...result.unidentified] : []),
+    [result]
+  )
+
+  // icon-id -> the correction a user already chose for it (drives the orange "same id"
+  // candidate hints on still-unflagged boxes).
+  const correctionByIcon = useMemo(() => {
+    const m: Record<string, { item_id: string; name: string }> = {}
+    for (const f of Object.values(flags)) {
+      if (f.type === "wrong_item" && f.corrected) m[f.icon_id] = f.corrected
+    }
+    return m
+  }, [flags])
 
   if (!ts || !result) {
     return (
@@ -115,11 +212,27 @@ export function AnalysisPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
 
   const flagList = Object.values(flags)
 
+  const setFlag = (flag: Flag, prev?: Record<string, Flag>) => ({
+    ...(prev ?? flags),
+    [boxKey(flag.box)]: flag,
+  })
+
   const saveFlag = (flag: Flag) => {
-    setFlags((f) => ({ ...f, [boxKey(flag.box)]: flag }))
+    const next = setFlag(flag)
+    setFlags(next)
     setEditing(null)
     setSaved(null)
+    // Offer to apply the same fix to other boxes YOLO gave the same icon-id.
+    if (flag.type === "wrong_item" && flag.corrected) {
+      const siblings = allBoxes.filter(
+        (b) => b.icon_id === flag.icon_id && !next[boxKey(b.box)]
+      )
+      if (siblings.length) {
+        setPropagate({ iconId: flag.icon_id, corrected: flag.corrected, boxes: siblings })
+      }
+    }
   }
+
   const clearFlag = () => {
     if (!editing) return
     setFlags((f) => {
@@ -128,6 +241,24 @@ export function AnalysisPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
       return next
     })
     setEditing(null)
+  }
+
+  const applyPropagation = () => {
+    if (!propagate) return
+    setFlags((f) => {
+      const next = { ...f }
+      for (const b of propagate.boxes) {
+        next[boxKey(b.box)] = {
+          box: b.box,
+          icon_id: b.icon_id,
+          type: "wrong_item",
+          shown: { item_id: b.id, name: b.name },
+          corrected: propagate.corrected,
+        }
+      }
+      return next
+    })
+    setPropagate(null)
   }
 
   const submit = async () => {
@@ -218,6 +349,11 @@ export function AnalysisPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
                   nat={nat}
                   identified={false}
                   flag={flags[boxKey(it.box)]}
+                  candidate={
+                    !flags[boxKey(it.box)]
+                      ? correctionByIcon[it.icon_id]?.name
+                      : undefined
+                  }
                   onClick={() => setEditing(it)}
                 />
               ))}
@@ -228,6 +364,11 @@ export function AnalysisPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
                   nat={nat}
                   identified
                   flag={flags[boxKey(it.box)]}
+                  candidate={
+                    !flags[boxKey(it.box)]
+                      ? correctionByIcon[it.icon_id]?.name
+                      : undefined
+                  }
                   onClick={() => setEditing(it)}
                 />
               ))}
@@ -244,6 +385,16 @@ export function AnalysisPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
           onClose={() => setEditing(null)}
           onSave={saveFlag}
           onClear={clearFlag}
+        />
+      )}
+
+      {propagate && (
+        <PropagateDialog
+          ts={ts}
+          name={propagate.corrected.name}
+          boxes={propagate.boxes}
+          onApply={applyPropagation}
+          onSkip={() => setPropagate(null)}
         />
       )}
     </div>

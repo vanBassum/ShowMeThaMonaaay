@@ -29,7 +29,8 @@ PRICES_TTL = 24 * 3600      # re-fetch tarkov.dev prices when items.json is olde
 CACHE = os.environ.get("EFT_ICON_CACHE") or os.path.join(
     os.environ.get("LOCALAPPDATA", ""), "Temp", "Battlestate Games",
     "EscapeFromTarkov", "Icon Cache", "live")          # YOLO icon-id -> <id>.png
-CATALOG_ICONS = os.path.join(ROOT, "data", "icons")    # OCR item-id -> <id>.webp (shipped)
+CATALOG_ICONS = os.path.join(ROOT, "data", "icons")    # OCR item-id -> <id>.webp (shipped baseline)
+CATALOG_ICONS_CACHE = str(paths.catalog_icons_dir())   # per-user lazy cache (AppData)
 # Per-user writable state lives outside the repo/install dir — see backend/paths.py
 # (Windows: %LOCALAPPDATA%\ShowMeThaMonaaay; override with SMTM_DATA_DIR).
 SESSIONS = str(paths.sessions_dir())                   # saved scans (raw + detections)
@@ -353,10 +354,36 @@ def yolo_icon(icon_id):
     return send_file(p) if os.path.exists(p) else abort(404)
 
 
-@app.route("/api/cat-icon/<item_id>")           # what OCR matched (catalog icon)
+def _cat_icon_path(item_id):
+    """Resolve a catalog (grid) icon: per-user cache first, then the shipped baseline,
+    else lazily download it from tarkov.dev (gridImageLink) into the cache. Returns the
+    path to serve, or None if the item has no icon link / the fetch failed."""
+    fn = f"{item_id}.webp"
+    for p in (os.path.join(CATALOG_ICONS_CACHE, fn), os.path.join(CATALOG_ICONS, fn)):
+        if os.path.exists(p) and os.path.getsize(p) > 0:
+            return p
+    item = scanmod._catalog().get(item_id)
+    url = item.get("gridImageLink") if item else None
+    if not url:
+        return None
+    try:
+        import urllib.request
+        req = urllib.request.Request(url, headers={"User-Agent": "smtm"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            blob = r.read()
+        dst = os.path.join(CATALOG_ICONS_CACHE, fn)
+        with open(dst, "wb") as f:
+            f.write(blob)
+        return dst
+    except Exception as e:
+        print(f"(cat-icon fetch failed {item_id}: {e})")
+        return None
+
+
+@app.route("/api/cat-icon/<item_id>")           # catalog icon (OCR match / picker / compare)
 def cat_icon(item_id):
-    p = os.path.join(CATALOG_ICONS, f"{item_id}.webp")
-    return send_file(p) if os.path.exists(p) else abort(404)
+    p = _cat_icon_path(item_id)
+    return send_file(p) if p else abort(404)
 
 
 @app.route("/api/crop/<ts>")                     # on-screen crop, box=x0,y0,x1,y1
