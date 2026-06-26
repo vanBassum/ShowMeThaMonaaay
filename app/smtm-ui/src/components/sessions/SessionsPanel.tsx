@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react"
 import { History, RotateCw, Wrench } from "lucide-react"
 
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { cn, formatSessionTs } from "@/lib/utils"
 import { useServerState } from "@/lib/server-state"
 
@@ -54,14 +56,16 @@ export function SessionsPanel() {
         <span className="text-sm text-muted-foreground">
           {sessions.length} saved scan{sessions.length === 1 ? "" : "s"}
         </span>
-        <button
+        <Button
           type="button"
+          size="sm"
+          variant="outline"
           onClick={() => void refresh()}
-          className="ml-auto flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent"
+          className="ml-auto text-muted-foreground"
         >
           <RotateCw className={cn("size-3.5", loading && "animate-spin")} />
           Refresh
-        </button>
+        </Button>
       </div>
 
       {sessions.length === 0 ? (
@@ -95,23 +99,23 @@ export function SessionsPanel() {
                   className="size-full object-cover transition-transform group-hover:scale-[1.03]"
                 />
                 {total != null && (
-                  <span className="absolute bottom-1 right-1 rounded bg-black/65 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-white">
+                  <Badge className="absolute bottom-1 right-1 bg-black/65 tabular-nums text-white">
                     ₽{RUB(total)}
-                  </span>
+                  </Badge>
                 )}
                 {ts === activeTs && (
-                  <span className="absolute left-1 top-1 rounded bg-amber-500 px-1.5 py-0.5 text-[10px] font-medium text-black">
+                  <Badge className="absolute left-1 top-1 bg-amber-500 text-black">
                     loaded
-                  </span>
+                  </Badge>
                 )}
                 {fixes > 0 && (
-                  <span
+                  <Badge
                     title={`${fixes} saved fix${fixes === 1 ? "" : "es"}`}
-                    className="absolute right-1 top-1 flex items-center gap-0.5 rounded bg-amber-500/90 px-1.5 py-0.5 text-[10px] font-medium text-black"
+                    className="absolute right-1 top-1 gap-0.5 bg-amber-500/90 text-black"
                   >
                     <Wrench className="size-2.5" />
                     {fixes}
-                  </span>
+                  </Badge>
                 )}
               </div>
               <div className="flex items-center justify-between gap-2 px-2 py-1.5">

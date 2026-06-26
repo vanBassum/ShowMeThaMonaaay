@@ -1,5 +1,6 @@
 import { Crosshair, Loader2 } from "lucide-react"
 
+import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { useServerState, type ScanItem } from "@/lib/server-state"
 
@@ -49,9 +50,9 @@ function ItemRow({ item, ts }: { item: AggItem; ts: string | null }) {
         <div className="flex items-center gap-1.5">
           <span className="truncate text-sm">{item.name}</span>
           {item.count > 1 && (
-            <span className="shrink-0 rounded bg-muted px-1 text-[10px] font-medium tabular-nums text-muted-foreground">
+            <Badge variant="secondary" className="shrink-0 px-1 tabular-nums">
               ×{item.count}
-            </span>
+            </Badge>
           )}
         </div>
         <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -61,14 +62,14 @@ function ItemRow({ item, ts }: { item: AggItem; ts: string | null }) {
             {slots} slot{slots > 1 ? "s" : ""}
           </span>
           {item.source && (
-            <span
+            <Badge
               className={cn(
-                "rounded px-1 py-px text-[10px] font-medium",
+                "px-1 py-px",
                 sourceStyle[item.source] ?? "bg-muted text-muted-foreground"
               )}
             >
               {item.source}
-            </span>
+            </Badge>
           )}
         </div>
       </div>

@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useState } from "react"
-import { Check, Copy, Loader2, ScanSearch, X } from "lucide-react"
+import { Check, Copy, Loader2, ScanSearch } from "lucide-react"
 
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { cn, formatSessionTs } from "@/lib/utils"
 import { useServerState, type ScanItem } from "@/lib/server-state"
 import type { NavId } from "@/components/shell/nav"
@@ -125,36 +134,22 @@ function PropagateDialog({
   const chosen = boxes.filter((_, i) => selected.has(i))
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-      onClick={onSkip}
-    >
-      <div
-        className="flex max-h-[80vh] w-full max-w-md flex-col rounded-lg border bg-card p-4 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start gap-2 text-sm font-medium">
-          <Copy className="mt-0.5 size-4 shrink-0 text-orange-500" />
-          <span className="flex-1">
+    <Dialog open onOpenChange={(o) => !o && onSkip()}>
+      <DialogContent className="flex max-h-[80vh] flex-col sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-sm">
+            <Copy className="size-4 shrink-0 text-orange-500" />
             {boxes.length} other box{boxes.length === 1 ? "" : "es"} have the same detected
             id
-          </span>
-          <button
-            type="button"
-            onClick={onSkip}
-            title="Close without changes"
-            className="-mt-1 -mr-1 rounded p-1 text-muted-foreground hover:bg-accent"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Deselect any that are <span className="font-medium">not</span>{" "}
-          <span className="font-medium text-foreground">{name}</span>.
-        </p>
+          </DialogTitle>
+          <DialogDescription>
+            Deselect any that are <span className="font-medium">not</span>{" "}
+            <span className="font-medium text-foreground">{name}</span>.
+          </DialogDescription>
+        </DialogHeader>
         {/* p-1 so the selected crops' outer ring isn't clipped by the scroll container
             (overflow-y-auto also clips horizontal overflow). */}
-        <div className="mt-3 grid min-h-0 flex-1 grid-cols-6 gap-1.5 overflow-y-auto p-1">
+        <div className="grid min-h-0 flex-1 grid-cols-6 gap-1.5 overflow-y-auto p-1">
           {boxes.map((it, i) => {
             const on = selected.has(i)
             return (
@@ -181,23 +176,20 @@ function PropagateDialog({
             )
           })}
         </div>
-        <div className="mt-4 flex justify-end">
-          <button
+        <DialogFooter>
+          <Button
             type="button"
+            size="sm"
+            variant="outline"
             onClick={() => onApply(chosen)}
             disabled={!chosen.length}
-            className={cn(
-              "rounded-md border px-3 py-1.5 text-xs font-medium transition-colors",
-              chosen.length
-                ? "border-amber-500/50 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400"
-                : "text-muted-foreground"
-            )}
+            className="border-amber-500/50 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 hover:text-amber-700 dark:text-amber-400"
           >
             Mark {chosen.length} as {name}
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -393,20 +385,21 @@ export function AnalysisPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
               <Check className="size-3.5" /> Saved
             </span>
           )}
-          <button
+          <Button
             type="button"
+            size="sm"
+            variant="outline"
             onClick={() => void saveFixes()}
             disabled={!dirty || saving}
             className={cn(
-              "flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors",
-              dirty && !saving
-                ? "border-amber-500/50 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400"
-                : "text-muted-foreground"
+              dirty &&
+                !saving &&
+                "border-amber-500/50 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 hover:text-amber-700 dark:text-amber-400"
             )}
           >
             {saving && <Loader2 className="size-3.5 animate-spin" />}
             Save fixes{flagList.length ? ` (${flagList.length})` : ""}
-          </button>
+          </Button>
         </div>
       </div>
 

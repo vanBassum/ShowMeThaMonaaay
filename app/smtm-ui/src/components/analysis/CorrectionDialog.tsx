@@ -1,6 +1,16 @@
 import { useEffect, useRef, useState } from "react"
-import { Ban, Search, Trash2, X } from "lucide-react"
+import { Ban, Search, Trash2 } from "lucide-react"
 
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import type { ScanItem } from "@/lib/server-state"
 
@@ -26,8 +36,8 @@ export type Flag = {
   corrected?: { item_id: string; name: string }
 }
 
-/** Modal to report what a detected box SHOULD be. Searches the catalog and records a
- *  flag — it never edits the link map (read-only; reports are triaged offline). */
+/** Dialog to fix what a detected box SHOULD be. Searches the catalog and records a flag
+ *  — it never edits the link map (read-only; fixes are triaged offline later). */
 export function CorrectionDialog({
   ts,
   item,
@@ -51,10 +61,6 @@ export function CorrectionDialog({
   const cropUrl = `/api/crop/${ts}?box=${item.box.join(",")}`
   const shown = item.name ?? `unidentified (${item.icon_id})`
 
-  useEffect(() => {
-    inputRef.current?.focus()
-  }, [])
-
   // Debounced catalog search.
   useEffect(() => {
     const term = q.trim()
@@ -76,12 +82,6 @@ export function CorrectionDialog({
     return () => clearTimeout(t)
   }, [q])
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose()
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [onClose])
-
   const pick = (h: Hit) =>
     onSave({
       box: item.box,
@@ -100,26 +100,26 @@ export function CorrectionDialog({
     })
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="flex max-h-[80vh] w-full max-w-md flex-col overflow-hidden rounded-lg border bg-card shadow-xl"
-        onClick={(e) => e.stopPropagation()}
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent
+        className="flex max-h-[80vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-md"
+        onOpenAutoFocus={(e) => {
+          e.preventDefault()
+          inputRef.current?.focus()
+        }}
       >
-        <div className="flex items-center gap-3 border-b p-3">
+        <DialogHeader className="flex-row items-center gap-3 space-y-0 border-b p-3 pr-10 text-left">
           <img
             src={cropUrl}
             alt=""
             className="size-14 shrink-0 rounded border bg-muted object-contain"
           />
           <div className="min-w-0 flex-1">
-            <div className="text-[11px] text-muted-foreground">detected as</div>
-            <div className="truncate text-sm font-medium">{shown}</div>
+            <DialogDescription className="text-[11px]">detected as</DialogDescription>
+            <DialogTitle className="truncate text-sm font-medium">{shown}</DialogTitle>
             {existing?.corrected && (
               <div className="truncate text-[11px] text-amber-600 dark:text-amber-400">
-                flagged → {existing.corrected.name}
+                fixed → {existing.corrected.name}
               </div>
             )}
             {existing?.type === "not_an_item" && (
@@ -128,23 +128,16 @@ export function CorrectionDialog({
               </div>
             )}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-1 text-muted-foreground hover:bg-accent"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
+        </DialogHeader>
 
         <div className="relative border-b p-2">
           <Search className="absolute top-1/2 left-4 size-4 -translate-y-1/2 text-muted-foreground" />
-          <input
+          <Input
             ref={inputRef}
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search for the correct item…"
-            className="w-full rounded-md border bg-background py-2 pr-3 pl-9 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="pl-9"
           />
         </div>
 
@@ -182,30 +175,33 @@ export function CorrectionDialog({
           ))}
         </ul>
 
-        <div className="flex items-center gap-2 border-t p-2">
-          <button
+        <DialogFooter className="flex-row justify-start gap-2 border-t p-2 sm:justify-start">
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             onClick={markNotItem}
             className={cn(
-              "flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-xs transition-colors hover:bg-accent",
               existing?.type === "not_an_item" &&
                 "border-red-500/50 text-red-600 dark:text-red-400"
             )}
           >
             <Ban className="size-3.5" /> Not an item
-          </button>
+          </Button>
           {existing && (
-            <button
+            <Button
               type="button"
+              variant="outline"
+              size="sm"
               onClick={onClear}
-              className="flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent"
+              className="text-muted-foreground"
             >
               <Trash2 className="size-3.5" /> Remove flag
-            </button>
+            </Button>
           )}
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
