@@ -105,44 +105,47 @@ export function SessionsModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[80vh] flex-col sm:max-w-3xl">
-        <DialogHeader>
+        <DialogHeader className="pr-8">
           <DialogTitle className="flex items-center gap-2">
             Sessions
             <span className="text-sm font-normal text-muted-foreground">
               {sessions.length} saved scan{sessions.length === 1 ? "" : "s"}
             </span>
-            <div className="ml-auto flex items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={creating}
-                onClick={() => fileRef.current?.click()}
-                className="border-amber-500/50 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 hover:text-amber-700 dark:text-amber-400"
-              >
-                {creating ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <ImagePlus className="size-3.5" />
-                )}
-                {creating ? "Scanning…" : "Create from image"}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => void refresh()}
-                className="text-muted-foreground"
-              >
-                <RotateCw className={cn("size-3.5", loading && "animate-spin")} />
-                Refresh
-              </Button>
-            </div>
           </DialogTitle>
           <DialogDescription>
             Pick a scan to load it — it stays loaded as you switch pages.
           </DialogDescription>
         </DialogHeader>
+
+        {/* Actions sit in their own row so they never collide with the dialog's
+            top-right close (X) button. */}
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={creating}
+            onClick={() => fileRef.current?.click()}
+            className="border-amber-500/50 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 hover:text-amber-700 dark:text-amber-400"
+          >
+            {creating ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <ImagePlus className="size-3.5" />
+            )}
+            {creating ? "Scanning…" : "Create from image"}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => void refresh()}
+            className="ml-auto text-muted-foreground"
+          >
+            <RotateCw className={cn("size-3.5", loading && "animate-spin")} />
+            Refresh
+          </Button>
+        </div>
 
         <input
           ref={fileRef}
