@@ -112,7 +112,7 @@ function PropagateDialog({
       onClick={onSkip}
     >
       <div
-        className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-lg border bg-card p-4 shadow-xl"
+        className="flex max-h-[80vh] w-full max-w-md flex-col rounded-lg border bg-card p-4 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start gap-2 text-sm font-medium">
@@ -134,7 +134,9 @@ function PropagateDialog({
           Deselect any that are <span className="font-medium">not</span>{" "}
           <span className="font-medium text-foreground">{name}</span>.
         </p>
-        <div className="mt-3 grid min-h-0 flex-1 grid-cols-4 gap-2 overflow-y-auto">
+        {/* p-1 so the selected crops' outer ring isn't clipped by the scroll container
+            (overflow-y-auto also clips horizontal overflow). */}
+        <div className="mt-3 grid min-h-0 flex-1 grid-cols-6 gap-1.5 overflow-y-auto p-1">
           {boxes.map((it, i) => {
             const on = selected.has(i)
             return (
