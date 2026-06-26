@@ -19,7 +19,7 @@ from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # for sibling imports
 from ocr_identify import ocr_words, match_name  # noqa: E402
-from backend import paths, models  # noqa: E402  (data dirs + model packages)
+from backend import models  # noqa: E402  (model packages: weights + link map)
 
 DEFAULT_MODEL = "shared/models/best.pt"   # barry v3 (active)
 
@@ -45,11 +45,6 @@ def _links_dir():
     return models.links_dir(_MODEL)
 
 
-# Manual corrections are EVENT-sourced. The package ships a read-only baseline log; the
-# user's own corrections are written to (and read from) a per-user writable log in the
-# data dir — so runtime writes never touch the package.
-def user_links_log():                                # per-user writable correction log
-    return str(paths.links_dir() / "links.jsonl")
 _LINK = _CAT = None
 
 # The visual icon-id->item map is often right on the ICON but wrong on the ITEM when
@@ -92,9 +87,8 @@ def _events_from(p):
 
 
 def _events():
-    """Manual-correction events: the package's baseline log first, then the user's own
-    log, so the user's later corrections win when both touch the same icon."""
-    return _events_from(str(_links_dir() / "links.jsonl")) + _events_from(user_links_log())
+    """Manual-correction events shipped in the model package (read-only baseline)."""
+    return _events_from(str(_links_dir() / "links.jsonl"))
 
 
 def _link_map():
@@ -115,19 +109,6 @@ def _link_map():
                 _LINK[str(ev["icon_id"])] = {"item_id": ev["item_id"], "score": None,
                                              "margin": None, "override": True}
     return _LINK
-
-
-def add_manual_link(icon_id, item_id, note=""):
-    """Append a manual correction to the event log (never overwrites) and invalidate
-    the cached projection so the next scan/reproject reflects it."""
-    global _LINK
-    log = user_links_log()                       # links_dir() created the parent already
-    ev = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "icon_id": str(icon_id),
-          "item_id": item_id, "source": "manual", "certainty": 100, "note": note}
-    with open(log, "a", encoding="utf-8") as f:
-        f.write(json.dumps(ev, ensure_ascii=False) + "\n")
-    _LINK = None
-    return ev
 
 
 def _catalog():

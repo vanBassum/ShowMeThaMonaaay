@@ -15,7 +15,6 @@ from PIL import ImageGrab, Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)                            # repo root (anchor file paths here)
-WEB = os.path.join(HERE, "frontend")                    # html (react later) — served by Flask
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "tools"))         # for fetch_items (price refresh)
 import scan as scanmod          # noqa: E402
@@ -25,16 +24,11 @@ from backend import models, paths  # noqa: E402
 MODEL_PATH = scanmod.DEFAULT_MODEL
 PORT = 5001
 PRICES_TTL = 24 * 3600      # re-fetch tarkov.dev prices when items.json is older than this
-# icon sources for the compare page (absolute — send_file needs absolute paths)
-CACHE = os.environ.get("EFT_ICON_CACHE") or os.path.join(
-    os.environ.get("LOCALAPPDATA", ""), "Temp", "Battlestate Games",
-    "EscapeFromTarkov", "Icon Cache", "live")          # YOLO icon-id -> <id>.png
 CATALOG_ICONS = os.path.join(ROOT, "data", "icons")    # OCR item-id -> <id>.webp (shipped baseline)
 CATALOG_ICONS_CACHE = str(paths.catalog_icons_dir())   # per-user lazy cache (AppData)
 # Per-user writable state lives outside the repo/install dir — see backend/paths.py
 # (Windows: %LOCALAPPDATA%\ShowMeThaMonaaay; override with SMTM_DATA_DIR).
 SESSIONS = str(paths.sessions_dir())                   # saved scans (raw + detections + fixes)
-GALLERY = str(paths.gallery_dir())                     # real-crop training data
 
 app = Flask(__name__)
 _state = {"status": "idle", "result": None, "ts": None, "error": None,
@@ -158,61 +152,6 @@ def price_refresher():
         time.sleep(3600)
 
 
-def save_missed(ts, box, item_id=""):
-    """Save a user-drawn rectangle the detector MISSED as a real training sample.
-    Crop goes to gallery/missed/ with a gallery/missed.jsonl line; optionally labelled
-    with the correct item (else kept unlabelled for later naming). Negatives/misses are
-    as valuable as corrections for improving recall."""
-    raw = os.path.join(SESSIONS, ts or "", "raw.png")
-    if not ts or not os.path.exists(raw):
-        return None
-    x0, y0, x1, y1 = (int(round(v)) for v in box)
-    if x1 - x0 < 4 or y1 - y0 < 4:
-        return None
-    miss = os.path.join(GALLERY, "missed")
-    os.makedirs(miss, exist_ok=True)
-    fn = f"{ts}_{x0}_{y0}_{x1}_{y1}.png"
-    Image.open(raw).convert("RGB").crop((x0, y0, x1, y1)).save(os.path.join(miss, fn))
-    item = scanmod._catalog().get(item_id, {}) if item_id else {}
-    with open(os.path.join(GALLERY, "missed.jsonl"), "a", encoding="utf-8") as f:
-        f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "session": ts,
-                            "crop": f"missed/{fn}", "box": [x0, y0, x1, y1],
-                            "item_id": item_id, "item_name": item.get("name", "")},
-                           ensure_ascii=False) + "\n")
-    return fn
-
-
-def save_correction(ts, icon_id, item_id):
-    """When the user manually fixes an icon-id, keep the on-screen crop(s) + the correct
-    answer as labeled training data: these are exactly the real in-game samples where
-    YOLO's id was wrong, so they're gold for retraining / fixing the link map later.
-    Crops + a log line go to gallery/ (gitignored, game-sourced)."""
-    res, raw = _state.get("result"), os.path.join(SESSIONS, ts or "", "raw.png")
-    if not res or not ts or not os.path.exists(raw):
-        return
-    boxes = [d["box"] for d in res["items"] + res["unidentified"]
-             if str(d["icon_id"]) == str(icon_id)]
-    if not boxes:
-        return
-    item = scanmod._catalog().get(item_id, {})
-    crops = os.path.join(GALLERY, "crops")
-    os.makedirs(crops, exist_ok=True)
-    img = Image.open(raw).convert("RGB")
-    with open(os.path.join(GALLERY, "corrections.jsonl"), "a", encoding="utf-8") as f:
-        for i, box in enumerate(boxes):
-            fn = f"{ts}_{icon_id}_{i}.png"
-            img.crop(tuple(box)).save(os.path.join(crops, fn))
-            f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "session": ts,
-                                "crop": f"crops/{fn}", "box": box, "icon_id": str(icon_id),
-                                "item_id": item_id, "item_name": item.get("name", "")},
-                               ensure_ascii=False) + "\n")
-
-
-@app.route("/")
-def index():
-    return send_file(os.path.join(WEB, "ui.html"))
-
-
 @app.route("/api/latest")
 def latest():
     return jsonify(_state)
@@ -333,17 +272,7 @@ def stream():
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
-@app.route("/compare")
-def compare():
-    return send_file(os.path.join(WEB, "compare.html"))
-
-
-@app.route("/inspect")
-def inspect():
-    return send_file(os.path.join(WEB, "inspect.html"))
-
-
-@app.route("/api/raw/<ts>")                      # full screenshot for the inspector
+@app.route("/api/raw/<ts>")                      # full screenshot for the analysis view
 def raw(ts):
     p = os.path.join(SESSIONS, ts, "raw.png")
     return send_file(p) if os.path.exists(p) else abort(404)
@@ -352,12 +281,6 @@ def raw(ts):
 def _png(img):
     buf = io.BytesIO(); img.save(buf, "PNG"); buf.seek(0)
     return send_file(buf, mimetype="image/png")
-
-
-@app.route("/api/yolo-icon/<icon_id>")          # what YOLO saw (cache icon)
-def yolo_icon(icon_id):
-    p = os.path.join(CACHE, f"{icon_id}.png")
-    return send_file(p) if os.path.exists(p) else abort(404)
 
 
 def _cat_icon_path(item_id):
@@ -415,22 +338,6 @@ def search():
     return jsonify(scanmod.search_items(request.args.get("q", "")))
 
 
-@app.route("/api/override", methods=["POST"])    # correct an icon-id -> item (manual event)
-def override():
-    d = request.get_json(force=True)
-    icon_id, item_id = d.get("icon_id"), d.get("item_id")
-    if not icon_id or not item_id:
-        abort(400)
-    scanmod.add_manual_link(icon_id, item_id, note=d.get("note", ""))
-    save_correction(_state.get("ts"), icon_id, item_id)   # keep crop + right answer for training
-    # re-project the current scan with the new link (no re-capture / re-OCR)
-    if _state.get("result"):
-        res = scanmod.project(scanmod.dets_of(_state["result"]))
-        res["ts"] = _state["ts"]
-        _set(result=res, status="done")
-    return jsonify(ok=True)
-
-
 @app.route("/api/price-mode", methods=["POST"])  # pick flea basis: avg24h vs latest low
 def price_mode():
     mode = scanmod.set_price_mode((request.get_json(force=True) or {}).get("mode"))
@@ -441,22 +348,6 @@ def price_mode():
     else:
         _set(price_mode=mode)
     return jsonify(ok=True, price_mode=mode)
-
-
-@app.route("/api/refresh-prices", methods=["POST"])   # force a price re-fetch now
-def refresh_prices_now():
-    ok = refresh_prices(force=True)
-    return jsonify(ok=ok, prices_age_h=_state.get("prices_age_h"))
-
-
-@app.route("/api/missed", methods=["POST"])      # save a drawn rect the detector missed
-def missed():
-    d = request.get_json(force=True)
-    ts, box = d.get("ts") or _state.get("ts"), d.get("box")
-    if not box:
-        abort(400)
-    fn = save_missed(ts, box, d.get("item_id", ""))
-    return jsonify(ok=bool(fn), file=fn)
 
 
 if __name__ == "__main__":

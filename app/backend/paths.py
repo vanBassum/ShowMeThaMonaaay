@@ -43,20 +43,9 @@ def models_dir() -> Path:
     return _sub("models")
 
 
-def links_dir() -> Path:
-    """Reserved for the user's future manual-correction store (deferred — links are
-    read-only from the model package for now; see docs/TODO.md)."""
-    return _sub("links")
-
-
 def sessions_dir() -> Path:
-    """Saved scans (raw screenshot + detections) for replay/review."""
+    """Saved scans (raw screenshot + detections + per-session fixes) for replay/review."""
     return _sub("sessions")
-
-
-def gallery_dir() -> Path:
-    """Real-crop training data harvested from corrections and missed boxes."""
-    return _sub("gallery")
 
 
 def reports_dir() -> Path:
