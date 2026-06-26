@@ -18,8 +18,9 @@ ROOT = os.path.dirname(HERE)                            # repo root (anchor file
 WEB = os.path.join(HERE, "frontend")                    # html (react later) — served by Flask
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "tools"))         # for fetch_items (price refresh)
-import scan as scanmod      # noqa: E402
-import fetch_items          # noqa: E402
+import scan as scanmod          # noqa: E402
+import fetch_items              # noqa: E402
+from backend import models, paths  # noqa: E402
 
 MODEL_PATH = scanmod.DEFAULT_MODEL
 PORT = 5001
@@ -28,14 +29,19 @@ PRICES_TTL = 24 * 3600      # re-fetch tarkov.dev prices when items.json is olde
 CACHE = os.environ.get("EFT_ICON_CACHE") or os.path.join(
     os.environ.get("LOCALAPPDATA", ""), "Temp", "Battlestate Games",
     "EscapeFromTarkov", "Icon Cache", "live")          # YOLO icon-id -> <id>.png
-CATALOG_ICONS = os.path.join(ROOT, "data", "icons")    # OCR item-id -> <id>.webp
-SESSIONS = os.path.join(ROOT, "sessions")
-GALLERY = os.path.join(ROOT, "gallery")                # real-crop training data (gitignored)
+CATALOG_ICONS = os.path.join(ROOT, "data", "icons")    # OCR item-id -> <id>.webp (shipped)
+# Per-user writable state lives outside the repo/install dir — see backend/paths.py
+# (Windows: %LOCALAPPDATA%\ShowMeThaMonaaay; override with SMTM_DATA_DIR).
+SESSIONS = str(paths.sessions_dir())                   # saved scans (raw + detections)
+GALLERY = str(paths.gallery_dir())                     # real-crop training data
 
 app = Flask(__name__)
 _state = {"status": "idle", "result": None, "ts": None, "error": None,
-          "prices_age_h": None, "price_mode": scanmod.PRICE_MODE}
+          "prices_age_h": None, "price_mode": scanmod.PRICE_MODE,
+          # model fetch state, surfaced top-right in the UI
+          "model": {"name": models.DEFAULT, "state": "checking", "error": None}}
 _model = None
+_active_model = models.DEFAULT   # which model get_model() loads; switchable from the UI
 _lock = threading.Lock()
 _cond = threading.Condition()   # wakes SSE subscribers on every state change
 _ver = 0
@@ -55,8 +61,36 @@ def get_model():
     global _model
     if _model is None:
         from ultralytics import YOLO
-        _model = YOLO(MODEL_PATH)
+        _model = YOLO(str(models.ensure_model(_active_model)))  # fetch from release if absent
     return _model
+
+
+def set_active_model(name):
+    """Switch the active detector model: fetch it (UI shows progress) and drop the
+    loaded model so the next scan reloads with the new weights."""
+    global _active_model, _model
+    if name not in models.MODELS:
+        return False
+    _active_model = name
+    _model = None
+    threading.Thread(target=ensure_model_bg, args=(name,), daemon=True).start()
+    return True
+
+
+def ensure_model_bg(name=None):
+    """Make sure the detector model is downloaded, pushing fetch progress to the UI
+    (checking -> downloading -> ready/error). Runs at startup so the first launch
+    visibly fetches the model from GitHub before any scan is attempted."""
+    name = name or models.DEFAULT
+    try:
+        if models.is_present(name):
+            _set(model={"name": name, "state": "ready", "error": None})
+            return
+        _set(model={"name": name, "state": "downloading", "error": None})
+        models.ensure_model(name)
+        _set(model={"name": name, "state": "ready", "error": None})
+    except Exception as e:
+        _set(model={"name": name, "state": "error", "error": str(e)})
 
 
 def do_scan():
@@ -181,13 +215,46 @@ def latest():
     return jsonify(_state)
 
 
+@app.route("/api/models")                        # list models for the top-right dropdown
+def models_list():
+    def info(n):
+        man = models.read_manifest(n) if models.is_present(n) else None
+        return {"name": n, "present": models.is_present(n),
+                "fingerprint": (man or {}).get("icons_fingerprint"),
+                "classes": (man or {}).get("classes")}
+    return jsonify(active=_active_model,
+                   active_fingerprint=models.fingerprint(_active_model),
+                   available=[info(n) for n in models.MODELS])
+
+
+@app.route("/api/model", methods=["POST"])       # switch the active model
+def model_select():
+    name = (request.get_json(force=True) or {}).get("name")
+    if not name or not set_active_model(name):
+        abort(400)
+    return jsonify(ok=True, active=name)
+
+
 @app.route("/api/sessions")                 # saved scans, newest first (replay in the UI)
 def sessions_list():
+    """Each saved scan as a card-friendly summary (newest first): id + the totals the
+    grid shows (₽ total, identified/detections). Reads the stored scan.json — cheap for
+    the handful of sessions we keep; falls back to bare id if a file is unreadable."""
     if not os.path.isdir(SESSIONS):
         return jsonify([])
     ids = sorted((d for d in os.listdir(SESSIONS)
                   if os.path.exists(os.path.join(SESSIONS, d, "scan.json"))), reverse=True)
-    return jsonify(ids)
+    out = []
+    for ts in ids:
+        card = {"id": ts, "total": None, "identified": None, "detections": None}
+        try:
+            s = json.load(open(os.path.join(SESSIONS, ts, "scan.json"), encoding="utf-8"))
+            card.update(total=s.get("total"), identified=s.get("identified"),
+                        detections=s.get("detections"))
+        except Exception:
+            pass
+        out.append(card)
+    return jsonify(out)
 
 
 def load_session(ts):
@@ -334,9 +401,11 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--session", help="preload a saved session id into state (dev/testing)")
     ap.add_argument("--no-model", action="store_true",
-                    help="skip eager model load + F2 hotkey (frontend dev; a live scan still "
-                         "lazy-loads the model on demand)")
+                    help="skip the eager model load at startup (frontend dev). F2 is still "
+                         "registered and a scan lazy-loads/fetches the model on demand.")
     args = ap.parse_args()
+    # fetch the model in the background so first start visibly shows "fetching"
+    threading.Thread(target=ensure_model_bg, daemon=True).start()
     if not args.no_model:
         print("loading model...")
         get_model()
@@ -346,12 +415,12 @@ if __name__ == "__main__":
     if args.session:
         print(f"loaded session {args.session}" if load_session(args.session)
               else f"(session {args.session} not found)")
-    if not args.no_model:
-        try:
-            import keyboard
-            keyboard.add_hotkey("f2", trigger)
-            print("F2 = scan.")
-        except Exception as e:
-            print(f"(F2 hotkey unavailable: {e} — use the Scan button in the UI)")
+    # F2 always captures a screenshot; the model (if missing) is fetched/loaded on scan.
+    try:
+        import keyboard
+        keyboard.add_hotkey("f2", trigger)
+        print("F2 = scan.")
+    except Exception as e:
+        print(f"(F2 hotkey unavailable: {e} — use the Scan button in the UI)")
     print(f"UI: http://127.0.0.1:{PORT}")
     app.run(port=PORT, threaded=True)

@@ -6,11 +6,12 @@ out/
 screenshots/
 test screenshot*.png
 
-# backend scan cache + saved corrections
-sessions/
+# backend scan cache + saved corrections (repo-root only — leading slash so it does
+# NOT also ignore UI folders like app/smtm-ui/src/components/sessions/)
+/sessions/
 
-# accumulated real-crop gallery (game-sourced training data)
-gallery/
+# accumulated real-crop gallery (game-sourced training data; repo-root only)
+/gallery/
 
 # YOLO: training runs + downloaded base weights (data/yolo dataset covered by data/)
 runs/

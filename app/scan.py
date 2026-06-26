@@ -19,6 +19,7 @@ from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # for sibling imports
 from ocr_identify import ocr_words, match_name  # noqa: E402
+from backend import paths  # noqa: E402  (per-user writable dirs: see backend/paths.py)
 
 DEFAULT_MODEL = "shared/models/best.pt"   # barry v3 (active)
 
@@ -27,7 +28,12 @@ DEFAULT_MODEL = "shared/models/best.pt"   # barry v3 (active)
 ITEMS_PATH = "data/items.json"
 ICON_MAP_PATH = "data/icon_item_map.json"            # icon-id -> {item_id, score, margin} (visual matcher)
 OVERRIDES_PATH = "shared/links/icon_overrides.json"  # legacy flat manual map (icon-id -> item_id)
-LINKS_LOG = "shared/links/links.jsonl"               # append-only EVENT log (manual corrections etc.)
+# Manual corrections are EVENT-sourced. The shipped log is a read-only baseline (in the
+# repo / model package); the user's own corrections are written to (and read from) a
+# per-user writable log in the data dir — so runtime writes never dirty the repo.
+BASELINE_LINKS_LOG = "shared/links/links.jsonl"      # shipped baseline (read-only)
+def user_links_log():                                # per-user writable correction log
+    return str(paths.links_dir() / "links.jsonl")
 _LINK = _CAT = None
 
 # The visual icon-id->item map is often right on the ICON but wrong on the ITEM when
@@ -54,12 +60,12 @@ def _jload(p, d):
     return json.load(open(p, encoding="utf-8")) if os.path.exists(p) else d
 
 
-def _events():
-    """Read the append-only link event log (one JSON object per line)."""
-    if not os.path.exists(LINKS_LOG):
+def _events_from(p):
+    """Read an append-only link event log (one JSON object per line); [] if absent."""
+    if not os.path.exists(p):
         return []
     out = []
-    for line in open(LINKS_LOG, encoding="utf-8"):
+    for line in open(p, encoding="utf-8"):
         line = line.strip()
         if line:
             try:
@@ -67,6 +73,12 @@ def _events():
             except ValueError:
                 pass
     return out
+
+
+def _events():
+    """Manual-correction events: shipped baseline first, then the user's own log, so
+    the user's later corrections win when both touch the same icon."""
+    return _events_from(BASELINE_LINKS_LOG) + _events_from(user_links_log())
 
 
 def _link_map():
@@ -92,10 +104,10 @@ def add_manual_link(icon_id, item_id, note=""):
     """Append a manual correction to the event log (never overwrites) and invalidate
     the cached projection so the next scan/reproject reflects it."""
     global _LINK
-    os.makedirs(os.path.dirname(LINKS_LOG), exist_ok=True)
+    log = user_links_log()                       # links_dir() created the parent already
     ev = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "icon_id": str(icon_id),
           "item_id": item_id, "source": "manual", "certainty": 100, "note": note}
-    with open(LINKS_LOG, "a", encoding="utf-8") as f:
+    with open(log, "a", encoding="utf-8") as f:
         f.write(json.dumps(ev, ensure_ascii=False) + "\n")
     _LINK = None
     return ev

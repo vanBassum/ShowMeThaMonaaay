@@ -1,7 +1,8 @@
 # Logbook
 
-Experimental log — newest first. Each entry: what we tried, why, result, next.
-See `CLAUDE.md` for the format rule.
+**Scope: learning-model work only** — detector experiments, training, augmentations,
+packaging, eval on real shots. App/UX/backend-plumbing changes do NOT go here (see
+`docs/TODO.md` + commit messages). Newest first. Entry: what we tried, why, result, next.
 
 ---
 

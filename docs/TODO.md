@@ -39,6 +39,20 @@ Living checklist of deferred work. Newest context in LOGBOOK.md.
 - [ ] Spike: can we reverse the EFT `index.json` hash → template id? (clean
       independent linker if so).
 
+## Manual corrections — DEFERRED, needs design (2026-06-26)
+Decision: **the link map is READ-ONLY from the model package for now** — we use
+whatever `links/` the package ships (`icon_item_map.json`, `icon_overrides.json`,
+`links.jsonl`) and never overwrite it. No in-app manual adjustment yet.
+- [ ] Design a **user override store** kept separate from the package (package
+      links stay pristine, never written). Must be keyed to the model's
+      `icons_fingerprint` (from the manifest): manual links are icon-id based and
+      icon-ids only mean something within one class set, so an incompatible model
+      needs a fresh list while old lists are kept. `paths.links_dir()` is reserved.
+- [ ] Then re-enable the correction UI + `/api/override` / `/api/missed` writes
+      (currently dormant — the new React UI does not call them).
+- [ ] UI: surface the consequence of switching to a model with a different
+      fingerprint (warning was prototyped, then removed pending this design).
+
 ## Runtime app (UI)
 - [x] **Scan pipeline** (`app/scan.py`): YOLO boxes + OCR-in-box → catalog match →
       ₽/slot. OCR only reads inside boxes (kills false matches). 54/82 identified
