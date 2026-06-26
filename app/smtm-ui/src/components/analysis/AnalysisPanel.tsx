@@ -215,13 +215,36 @@ export function AnalysisPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
     preselected: Set<string> // boxKeys checked by default (the not-yet-adjusted ones)
   } | null>(null)
   const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState<string | null>(null)
+  const [dirty, setDirty] = useState(false) // unsaved changes since the last load/save
 
-  // Flags belong to one screenshot — drop them when the loaded session changes.
+  // Fixes belong to one session — load that session's saved fixes when it changes.
   useEffect(() => {
-    setFlags({})
-    setSaved(null)
     setPropagate(null)
+    if (!ts) {
+      setFlags({})
+      setDirty(false)
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetch(`/api/session/${ts}/fixes`)
+        const data = (await res.json()) as { flags?: Flag[] }
+        if (cancelled) return
+        const rec: Record<string, Flag> = {}
+        for (const f of data.flags ?? []) rec[boxKey(f.box)] = f
+        setFlags(rec)
+        setDirty(false)
+      } catch {
+        if (!cancelled) {
+          setFlags({})
+          setDirty(false)
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [ts])
 
   // All detections on this screenshot (identified + unidentified), in one list.
@@ -274,8 +297,8 @@ export function AnalysisPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
   const saveFlag = (flag: Flag) => {
     const next = setFlagWithDuplicates(flag, flags)
     setFlags(next)
+    setDirty(true)
     setEditing(null)
-    setSaved(null)
     // Offer to apply the same fix to other boxes YOLO gave the same icon-id. Already-
     // adjusted siblings are shown too but start deselected (so we don't overwrite them).
     if (flag.type === "wrong_item" && flag.corrected) {
@@ -303,6 +326,7 @@ export function AnalysisPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
       delete next[boxKey(editing.box)]
       return next
     })
+    setDirty(true)
     setEditing(null)
   }
 
@@ -324,23 +348,22 @@ export function AnalysisPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
       }
       return next
     })
+    setDirty(true)
     setPropagate(null)
   }
 
-  const submit = async () => {
-    if (!flagList.length) return
+  // Persist this session's fixes (≤1 set per session, stored with the session).
+  const saveFixes = async () => {
+    if (!ts) return
     setSaving(true)
     try {
-      const res = await fetch("/api/report", {
+      const res = await fetch(`/api/session/${ts}/fixes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_ts: ts, flags: flagList }),
+        body: JSON.stringify({ flags: flagList }),
       })
-      const data = (await res.json()) as { ok: boolean; report_id?: string }
-      if (data.ok) {
-        setSaved(data.report_id ?? "saved")
-        setFlags({})
-      }
+      const data = (await res.json()) as { ok: boolean }
+      if (data.ok) setDirty(false)
     } catch {
       /* backend offline */
     } finally {
@@ -365,31 +388,31 @@ export function AnalysisPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
         </span>
 
         <div className="ml-auto flex items-center gap-2">
-          {saved && !flagList.length && (
+          {!dirty && flagList.length > 0 && (
             <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
-              <Check className="size-3.5" /> Report saved ({saved})
+              <Check className="size-3.5" /> Saved
             </span>
           )}
           <button
             type="button"
-            onClick={() => void submit()}
-            disabled={!flagList.length || saving}
+            onClick={() => void saveFixes()}
+            disabled={!dirty || saving}
             className={cn(
               "flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors",
-              flagList.length && !saving
+              dirty && !saving
                 ? "border-amber-500/50 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400"
                 : "text-muted-foreground"
             )}
           >
             {saving && <Loader2 className="size-3.5 animate-spin" />}
-            Save report{flagList.length ? ` (${flagList.length})` : ""}
+            Save fixes{flagList.length ? ` (${flagList.length})` : ""}
           </button>
         </div>
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Click any box to report what it should be — searches the catalog. Reports are saved
-        locally for now (not sent), and never change the link map.
+        Click any box to fix what it should be — searches the catalog. Fixes are saved with
+        this session and never change the link map. (Sharing a report comes later.)
       </p>
 
       {/* Fit the whole screenshot in the panel; boxes overlay it 1:1 via percentages. */}

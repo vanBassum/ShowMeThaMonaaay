@@ -9,7 +9,7 @@ Notes:
   (exclusive fullscreen can grab black).
 - Model + OCR are loaded once; a scan takes a few seconds (OCR per detected box).
 """
-import os, sys, io, json, time, threading, argparse, shutil
+import os, sys, io, json, time, threading, argparse
 from flask import Flask, jsonify, send_file, request, abort, Response
 from PIL import ImageGrab, Image
 
@@ -33,9 +33,8 @@ CATALOG_ICONS = os.path.join(ROOT, "data", "icons")    # OCR item-id -> <id>.web
 CATALOG_ICONS_CACHE = str(paths.catalog_icons_dir())   # per-user lazy cache (AppData)
 # Per-user writable state lives outside the repo/install dir — see backend/paths.py
 # (Windows: %LOCALAPPDATA%\ShowMeThaMonaaay; override with SMTM_DATA_DIR).
-SESSIONS = str(paths.sessions_dir())                   # saved scans (raw + detections)
+SESSIONS = str(paths.sessions_dir())                   # saved scans (raw + detections + fixes)
 GALLERY = str(paths.gallery_dir())                     # real-crop training data
-REPORTS = str(paths.reports_dir())                     # user "this was wrong" reports
 
 app = Flask(__name__)
 _state = {"status": "idle", "result": None, "ts": None, "error": None,
@@ -237,36 +236,29 @@ def model_select():
     return jsonify(ok=True, active=name)
 
 
-def _report_counts():
-    """session_ts -> number of saved reports referencing it (for the grid badge)."""
-    counts = {}
-    if os.path.isdir(REPORTS):
-        for rid in os.listdir(REPORTS):
-            try:
-                b = json.load(open(os.path.join(REPORTS, rid, "report.json"), encoding="utf-8"))
-                sid = b.get("session_ts")
-                if sid:
-                    counts[sid] = counts.get(sid, 0) + 1
-            except Exception:
-                pass
-    return counts
+def _fixes_count(ts):
+    """How many box fixes are saved for this session (0 if none)."""
+    try:
+        data = json.load(open(os.path.join(SESSIONS, ts, "fixes.json"), encoding="utf-8"))
+        return len(data.get("flags", []))
+    except Exception:
+        return 0
 
 
 @app.route("/api/sessions")                 # saved scans, newest first (replay in the UI)
 def sessions_list():
     """Each saved scan as a card-friendly summary (newest first): id + the totals the
-    grid shows (₽ total, identified/detections, # saved reports). Reads the stored
+    grid shows (₽ total, identified/detections, # saved fixes). Reads the stored
     scan.json — cheap for the handful of sessions we keep; falls back to bare id if a
     file is unreadable."""
     if not os.path.isdir(SESSIONS):
         return jsonify([])
     ids = sorted((d for d in os.listdir(SESSIONS)
                   if os.path.exists(os.path.join(SESSIONS, d, "scan.json"))), reverse=True)
-    reports = _report_counts()
     out = []
     for ts in ids:
         card = {"id": ts, "total": None, "identified": None, "detections": None,
-                "reports": reports.get(ts, 0)}
+                "fixes": _fixes_count(ts)}
         try:
             s = json.load(open(os.path.join(SESSIONS, ts, "scan.json"), encoding="utf-8"))
             card.update(total=s.get("total"), identified=s.get("identified"),
@@ -299,32 +291,26 @@ def load_session_route(ts):
     return jsonify(ok=load_session(ts))
 
 
-@app.route("/api/report", methods=["POST"])     # save a "these detections were wrong" report
-def save_report():
-    """Persist a user report locally (NOT sent anywhere yet — see docs/REPORTING.md):
-    a bundle of flagged boxes ('this box should be item X') plus the whole screenshot,
-    so we can triage offline later. The app stays read-only — this never edits the link
-    map; that's a separate, deliberate action."""
-    d = request.get_json(force=True) or {}
-    ts, flags = d.get("session_ts"), d.get("flags") or []
-    if not ts or not flags:
-        abort(400)
-    rid = time.strftime("%Y%m%d-%H%M%S")
-    rdir = os.path.join(REPORTS, rid)
-    os.makedirs(rdir, exist_ok=True)
-    raw = os.path.join(SESSIONS, ts, "raw.png")
-    has_shot = os.path.exists(raw)
-    if has_shot:
-        shutil.copy(raw, os.path.join(rdir, "raw.png"))   # whole screenshot, self-contained
-    bundle = {"report_id": rid, "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
-              "session_ts": ts, "screenshot": "raw.png" if has_shot else None,
-              "model": {"name": _active_model,
-                        "icons_fingerprint": models.fingerprint(_active_model)},
-              "flags": flags}
-    json.dump(bundle, open(os.path.join(rdir, "report.json"), "w", encoding="utf-8"),
-              ensure_ascii=False, indent=2)
-    print(f"report saved: {rid} ({len(flags)} flag(s)) -> {rdir}")
-    return jsonify(ok=True, report_id=rid)
+@app.route("/api/session/<ts>/fixes", methods=["GET", "POST"])
+def session_fixes(ts):
+    """A session's 'fixes' = the user's box adjustments for that scan ('this box should
+    be item X' / 'not an item'). At most ONE set per session, stored in the session dir.
+    GET returns the saved flags; POST overwrites them. The app stays read-only — fixes
+    never edit the link map. A shareable report is built from these in a later step."""
+    sess = os.path.join(SESSIONS, ts)
+    if not os.path.isdir(sess):
+        abort(404)
+    p = os.path.join(sess, "fixes.json")
+    if request.method == "GET":
+        try:
+            return jsonify(json.load(open(p, encoding="utf-8")))
+        except Exception:
+            return jsonify({"ts": None, "flags": []})
+    flags = (request.get_json(force=True) or {}).get("flags") or []
+    data = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "flags": flags}
+    json.dump(data, open(p, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    print(f"fixes saved: {ts} ({len(flags)} fix(es))")
+    return jsonify(ok=True, count=len(flags))
 
 
 @app.route("/api/stream")           # Server-Sent Events: push state on every change

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { Flag, History, RotateCw } from "lucide-react"
+import { History, RotateCw, Wrench } from "lucide-react"
 
 import { cn, formatSessionTs } from "@/lib/utils"
 import { useServerState } from "@/lib/server-state"
@@ -11,7 +11,7 @@ type SessionCard = {
   total: number | null
   identified: number | null
   detections: number | null
-  reports: number
+  fixes: number
 }
 
 const RUB = (n: number) => n.toLocaleString("en-US")
@@ -75,7 +75,7 @@ export function SessionsPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
         </div>
       ) : (
         <div className="grid min-h-0 flex-1 grid-cols-2 content-start gap-3 overflow-y-auto pr-1 sm:grid-cols-3 lg:grid-cols-4">
-          {sessions.map(({ id: ts, total, identified, detections, reports }) => (
+          {sessions.map(({ id: ts, total, identified, detections, fixes }) => (
             <button
               key={ts}
               type="button"
@@ -103,13 +103,13 @@ export function SessionsPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
                     loaded
                   </span>
                 )}
-                {reports > 0 && (
+                {fixes > 0 && (
                   <span
-                    title={`${reports} saved report${reports === 1 ? "" : "s"}`}
-                    className="absolute right-1 top-1 flex items-center gap-0.5 rounded bg-sky-600/90 px-1.5 py-0.5 text-[10px] font-medium text-white"
+                    title={`${fixes} saved fix${fixes === 1 ? "" : "es"}`}
+                    className="absolute right-1 top-1 flex items-center gap-0.5 rounded bg-amber-500/90 px-1.5 py-0.5 text-[10px] font-medium text-black"
                   >
-                    <Flag className="size-2.5" />
-                    {reports}
+                    <Wrench className="size-2.5" />
+                    {fixes}
                   </span>
                 )}
               </div>
