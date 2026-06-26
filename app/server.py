@@ -272,10 +272,23 @@ def stream():
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+def _cached(resp, days, immutable=False):
+    """Tell the browser to cache an (effectively immutable) image so it stops re-hitting
+    this API for the same icon/crop/screenshot on every render. Set the header explicitly
+    to clear send_file's default `no-cache`, which would otherwise force revalidation."""
+    parts = ["public", f"max-age={int(days * 24 * 3600)}"]
+    if immutable:
+        parts.append("immutable")
+    resp.headers["Cache-Control"] = ", ".join(parts)
+    return resp
+
+
 @app.route("/api/raw/<ts>")                      # full screenshot for the analysis view
 def raw(ts):
     p = os.path.join(SESSIONS, ts, "raw.png")
-    return send_file(p) if os.path.exists(p) else abort(404)
+    if not os.path.exists(p):
+        abort(404)
+    return _cached(send_file(p), 30, immutable=True)   # a session's screenshot never changes
 
 
 def _png(img):
@@ -309,10 +322,10 @@ def _cat_icon_path(item_id):
         return None
 
 
-@app.route("/api/cat-icon/<item_id>")           # catalog icon (OCR match / picker / compare)
+@app.route("/api/cat-icon/<item_id>")           # catalog icon (OCR match / item picker)
 def cat_icon(item_id):
-    p = _cat_icon_path(item_id)
-    return send_file(p) if p else abort(404)
+    p = _cat_icon_path(item_id)                  # disk-cached; lazily fetched once
+    return _cached(send_file(p), 7) if p else abort(404)   # browser-cache 7d (art rarely changes)
 
 
 @app.route("/api/crop/<ts>")                     # on-screen crop, box=x0,y0,x1,y1
@@ -324,7 +337,7 @@ def crop(ts):
         box = tuple(int(v) for v in request.args["box"].split(","))
     except Exception:
         abort(400)
-    return _png(Image.open(raw).convert("RGB").crop(box))
+    return _cached(_png(Image.open(raw).convert("RGB").crop(box)), 30, immutable=True)
 
 
 @app.route("/api/scan", methods=["POST"])
