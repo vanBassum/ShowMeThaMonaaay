@@ -134,7 +134,7 @@ function PropagateDialog({
           <span className="font-medium">not</span>{" "}
           <span className="font-medium text-foreground">{name}</span> to deselect them.
         </p>
-        <div className="mt-3 flex flex-wrap gap-2 overflow-y-auto">
+        <div className="mt-3 grid min-h-0 flex-1 grid-cols-6 gap-1.5 overflow-y-auto">
           {boxes.map((it, i) => {
             const on = selected.has(i)
             return (
@@ -144,22 +144,17 @@ function PropagateDialog({
                 onClick={() => toggle(i)}
                 title={on ? "Selected — click to skip" : "Skipped — click to include"}
                 className={cn(
-                  "relative rounded border-2 bg-muted transition-all",
+                  "aspect-square overflow-hidden rounded bg-muted transition-all",
                   on
-                    ? "border-amber-500"
-                    : "border-transparent opacity-40 grayscale hover:opacity-70"
+                    ? "ring-2 ring-amber-500 ring-inset"
+                    : "opacity-35 grayscale hover:opacity-60"
                 )}
               >
                 <img
                   src={`/api/crop/${ts}?box=${it.box.join(",")}`}
                   alt=""
-                  className="size-12 rounded-sm object-contain"
+                  className="size-full object-contain"
                 />
-                {on && (
-                  <span className="absolute -top-1.5 -right-1.5 rounded-full bg-amber-500 p-0.5 text-black">
-                    <Check className="size-3" />
-                  </span>
-                )}
               </button>
             )
           })}
