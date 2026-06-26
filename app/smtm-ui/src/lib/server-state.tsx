@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useState,
@@ -55,11 +56,15 @@ type ServerStateValue = {
   state: ServerState | null
   /** Whether the SSE stream is currently connected. */
   connected: boolean
+  /** Pull the current state from /api/latest immediately (don't wait for the next SSE
+   *  push). Use after an action that changes server state, e.g. loading a session. */
+  refresh: () => Promise<void>
 }
 
 const ServerStateContext = createContext<ServerStateValue>({
   state: null,
   connected: false,
+  refresh: async () => {},
 })
 
 /**
@@ -70,6 +75,15 @@ const ServerStateContext = createContext<ServerStateValue>({
 export function ServerStateProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<ServerState | null>(null)
   const [connected, setConnected] = useState(false)
+
+  const refresh = useCallback(async () => {
+    try {
+      const res = await fetch("/api/latest")
+      setState((await res.json()) as ServerState)
+    } catch {
+      // backend offline — keep the last known state
+    }
+  }, [])
 
   useEffect(() => {
     const es = new EventSource("/api/stream")
@@ -87,7 +101,7 @@ export function ServerStateProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <ServerStateContext.Provider value={{ state, connected }}>
+    <ServerStateContext.Provider value={{ state, connected, refresh }}>
       {children}
     </ServerStateContext.Provider>
   )
