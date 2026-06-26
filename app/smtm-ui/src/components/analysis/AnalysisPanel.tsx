@@ -9,6 +9,21 @@ import { CorrectionDialog, type Flag } from "./CorrectionDialog"
 const RUB = (n: number) => n.toLocaleString("en-US")
 const boxKey = (b: number[]) => b.join(",")
 
+// YOLO sometimes emits two boxes for one item (different icon-id, near-identical box).
+// Treat boxes above this overlap as the same physical item so a fix applies to both.
+const DUP_IOU = 0.6
+function iou(a: number[], b: number[]) {
+  const ix0 = Math.max(a[0], b[0]),
+    iy0 = Math.max(a[1], b[1]),
+    ix1 = Math.min(a[2], b[2]),
+    iy1 = Math.min(a[3], b[3])
+  const inter = Math.max(0, ix1 - ix0) * Math.max(0, iy1 - iy0)
+  if (!inter) return 0
+  const union =
+    (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+  return union ? inter / union : 0
+}
+
 /** One detection drawn over the screenshot. Boxes are in source-image pixels, so we
  *  position them as percentages of the natural size — exact at any display scale.
  *  Click to report what the box should be. Colour states (labels are hover-only):
@@ -85,17 +100,20 @@ function PropagateDialog({
   ts,
   name,
   boxes,
+  preselected,
   onApply,
   onSkip,
 }: {
   ts: string
   name: string
   boxes: ScanItem[]
+  preselected: Set<string>
   onApply: (chosen: ScanItem[]) => void
   onSkip: () => void
 }) {
+  // Boxes already adjusted start deselected so re-applying won't overwrite them.
   const [selected, setSelected] = useState<Set<number>>(
-    () => new Set(boxes.map((_, i) => i))
+    () => new Set(boxes.flatMap((b, i) => (preselected.has(boxKey(b.box)) ? [i] : [])))
   )
   const toggle = (i: number) =>
     setSelected((s) => {
@@ -194,6 +212,7 @@ export function AnalysisPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
     iconId: string
     corrected: { item_id: string; name: string }
     boxes: ScanItem[]
+    preselected: Set<string> // boxKeys checked by default (the not-yet-adjusted ones)
   } | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState<string | null>(null)
@@ -234,23 +253,45 @@ export function AnalysisPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
 
   const flagList = Object.values(flags)
 
-  const setFlag = (flag: Flag, prev?: Record<string, Flag>) => ({
-    ...(prev ?? flags),
-    [boxKey(flag.box)]: flag,
-  })
+  // Apply a flag to a box AND to any duplicate detection of it (same item, double-
+  // detected), so a fix doesn't leave a red twin box behind.
+  const setFlagWithDuplicates = (flag: Flag, base: Record<string, Flag>) => {
+    const next = { ...base, [boxKey(flag.box)]: flag }
+    for (const b of allBoxes) {
+      if (boxKey(b.box) === boxKey(flag.box)) continue
+      if (iou(b.box, flag.box) >= DUP_IOU) {
+        next[boxKey(b.box)] = {
+          ...flag,
+          box: b.box,
+          icon_id: b.icon_id,
+          shown: { item_id: b.id, name: b.name },
+        }
+      }
+    }
+    return next
+  }
 
   const saveFlag = (flag: Flag) => {
-    const next = setFlag(flag)
+    const next = setFlagWithDuplicates(flag, flags)
     setFlags(next)
     setEditing(null)
     setSaved(null)
-    // Offer to apply the same fix to other boxes YOLO gave the same icon-id.
+    // Offer to apply the same fix to other boxes YOLO gave the same icon-id. Already-
+    // adjusted siblings are shown too but start deselected (so we don't overwrite them).
     if (flag.type === "wrong_item" && flag.corrected) {
       const siblings = allBoxes.filter(
-        (b) => b.icon_id === flag.icon_id && !next[boxKey(b.box)]
+        (b) => b.icon_id === flag.icon_id && boxKey(b.box) !== boxKey(flag.box)
       )
-      if (siblings.length) {
-        setPropagate({ iconId: flag.icon_id, corrected: flag.corrected, boxes: siblings })
+      const preselected = new Set(
+        siblings.filter((b) => !next[boxKey(b.box)]).map((b) => boxKey(b.box))
+      )
+      if (preselected.size) {
+        setPropagate({
+          iconId: flag.icon_id,
+          corrected: flag.corrected,
+          boxes: siblings,
+          preselected,
+        })
       }
     }
   }
@@ -268,15 +309,18 @@ export function AnalysisPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
   const applyPropagation = (chosen: ScanItem[]) => {
     if (!propagate) return
     setFlags((f) => {
-      const next = { ...f }
+      let next = { ...f }
       for (const b of chosen) {
-        next[boxKey(b.box)] = {
-          box: b.box,
-          icon_id: b.icon_id,
-          type: "wrong_item",
-          shown: { item_id: b.id, name: b.name },
-          corrected: propagate.corrected,
-        }
+        next = setFlagWithDuplicates(
+          {
+            box: b.box,
+            icon_id: b.icon_id,
+            type: "wrong_item",
+            shown: { item_id: b.id, name: b.name },
+            corrected: propagate.corrected,
+          },
+          next
+        )
       }
       return next
     })
@@ -405,6 +449,7 @@ export function AnalysisPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
           ts={ts}
           name={propagate.corrected.name}
           boxes={propagate.boxes}
+          preselected={propagate.preselected}
           onApply={(chosen) => applyPropagation(chosen)}
           onSkip={() => setPropagate(null)}
         />

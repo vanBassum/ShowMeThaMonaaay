@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { History, RotateCw } from "lucide-react"
+import { Flag, History, RotateCw } from "lucide-react"
 
 import { cn, formatSessionTs } from "@/lib/utils"
 import { useServerState } from "@/lib/server-state"
@@ -11,6 +11,7 @@ type SessionCard = {
   total: number | null
   identified: number | null
   detections: number | null
+  reports: number
 }
 
 const RUB = (n: number) => n.toLocaleString("en-US")
@@ -74,7 +75,7 @@ export function SessionsPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
         </div>
       ) : (
         <div className="grid min-h-0 flex-1 grid-cols-2 content-start gap-3 overflow-y-auto pr-1 sm:grid-cols-3 lg:grid-cols-4">
-          {sessions.map(({ id: ts, total, identified, detections }) => (
+          {sessions.map(({ id: ts, total, identified, detections, reports }) => (
             <button
               key={ts}
               type="button"
@@ -100,6 +101,15 @@ export function SessionsPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
                 {ts === activeTs && (
                   <span className="absolute left-1 top-1 rounded bg-amber-500 px-1.5 py-0.5 text-[10px] font-medium text-black">
                     loaded
+                  </span>
+                )}
+                {reports > 0 && (
+                  <span
+                    title={`${reports} saved report${reports === 1 ? "" : "s"}`}
+                    className="absolute right-1 top-1 flex items-center gap-0.5 rounded bg-sky-600/90 px-1.5 py-0.5 text-[10px] font-medium text-white"
+                  >
+                    <Flag className="size-2.5" />
+                    {reports}
                   </span>
                 )}
               </div>

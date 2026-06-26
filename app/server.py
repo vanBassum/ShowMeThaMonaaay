@@ -237,18 +237,36 @@ def model_select():
     return jsonify(ok=True, active=name)
 
 
+def _report_counts():
+    """session_ts -> number of saved reports referencing it (for the grid badge)."""
+    counts = {}
+    if os.path.isdir(REPORTS):
+        for rid in os.listdir(REPORTS):
+            try:
+                b = json.load(open(os.path.join(REPORTS, rid, "report.json"), encoding="utf-8"))
+                sid = b.get("session_ts")
+                if sid:
+                    counts[sid] = counts.get(sid, 0) + 1
+            except Exception:
+                pass
+    return counts
+
+
 @app.route("/api/sessions")                 # saved scans, newest first (replay in the UI)
 def sessions_list():
     """Each saved scan as a card-friendly summary (newest first): id + the totals the
-    grid shows (₽ total, identified/detections). Reads the stored scan.json — cheap for
-    the handful of sessions we keep; falls back to bare id if a file is unreadable."""
+    grid shows (₽ total, identified/detections, # saved reports). Reads the stored
+    scan.json — cheap for the handful of sessions we keep; falls back to bare id if a
+    file is unreadable."""
     if not os.path.isdir(SESSIONS):
         return jsonify([])
     ids = sorted((d for d in os.listdir(SESSIONS)
                   if os.path.exists(os.path.join(SESSIONS, d, "scan.json"))), reverse=True)
+    reports = _report_counts()
     out = []
     for ts in ids:
-        card = {"id": ts, "total": None, "identified": None, "detections": None}
+        card = {"id": ts, "total": None, "identified": None, "detections": None,
+                "reports": reports.get(ts, 0)}
         try:
             s = json.load(open(os.path.join(SESSIONS, ts, "scan.json"), encoding="utf-8"))
             card.update(total=s.get("total"), identified=s.get("identified"),
