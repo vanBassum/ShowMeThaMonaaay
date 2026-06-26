@@ -10,13 +10,16 @@ as-built layout (one deviation from the original plan, noted below).
 ## Layout
 
 ```
-app/          # THE PRODUCT (engine + backend + frontend) — used while gaming.
-              # This is what will ship in the exe (GitHub Actions, later).
+app/          # THE PRODUCT (engine + backend + frontend) — standalone; ships in the exe.
   ocr_identify.py                          # identification: read printed name -> catalog item
   scan.py                                  # engine: screenshot -> YOLO boxes -> OCR-in-box -> ₽/slot
-  server.py                                # backend: Flask, F2 hotkey -> scan, SSE, correction API
-  frontend/                                # the UI — plain HTML now, React later
-    ui.html  compare.html  inspect.html    # keep/ditch lists · icon compare · session inspector
+  server.py                                # backend: Flask, F2 -> scan, SSE, sessions/fixes API
+  backend/      models.py, paths.py        # model+links download-from-release; AppData paths
+  smtm-ui/      (Vite + React + shadcn)     # the UI: app shell, scan, sessions, analysis, model status
+
+# Runtime writable state lives OUTSIDE the repo/install dir, in AppData
+#   %LOCALAPPDATA%\ShowMeThaMonaaay\  ->  models/ links/ sessions/ gallery/ reports/ icons/
+# The app fetches its model + curated links as a release PACKAGE; it does NOT read shared/.
 
 tools/        # one-time / offline (dev-only, NOT shipped)
   build_dataset.py   train.py             # synthetic dataset gen + YOLO training
@@ -49,6 +52,46 @@ Old dead-pipeline files (`cls.py`, `cls_model.py`, `train_cls.py`, `retrieval.py
 `make_dataset.py`, `extract_overlays.py`, `autolabel.py`, and `app/ocr.py` — the
 classifier-autolabel OCR, superseded by `app/ocr_identify.py`) stay deleted — in
 git history if ever needed.
+
+## Planned: clean app ⊥ training split (not yet executed)
+
+**Why.** The app is now **standalone** — it downloads its model + curated links as a release
+package and reads runtime state from AppData (`%LOCALAPPDATA%\ShowMeThaMonaaay\`). So nothing
+the app needs at runtime is "shared" with training anymore — `shared/` is a misnomer. Split
+into two domains: **`app/` = the product**, everything else = **training/dev** (a training
+UI, if ever needed, is just more `tools/`).
+
+**Target layout:**
+
+```text
+app/            # PRODUCT — standalone; reads only AppData + the fetched package
+training/       # everything training/dev (was "shared/", honestly named)
+  models/       # best.pt + archive (model cards, lineage)        [was shared/models]
+  links/        # icon_overrides + links.jsonl + icon_dups        [was shared/links] — curated baseline pack_model ships
+  templates/    # screen1 (background + grids)                    [was shared/templates]
+  overlays/     # name/count/FiR/marked                           [was shared/assets/overlays]
+  captures/     # game-captured real crops                        [was gallery/, parked in shared/captures]
+  icons/        # EFT icon-cache snapshot (~68 MB) — synthetic-data input  [decision: track vs external]
+tools/          # training scripts (build_dataset, train, fetch_items, pack_model…)
+experiments/ · docs/
+```
+
+**The real work is code decoupling, not just `mv`** — today the app still reaches into the
+training side, so a bare rename would break it:
+
+- `app/scan.py` now reads the **link map from the model package** (`models.links_dir`) ✓ —
+  no longer `shared/links/`. Remaining: the `--model` CLI default still points at
+  `shared/models/best.pt` (cosmetic; the server uses `models.ensure_model`), and the catalog
+  `data/items.json` stays in `data/` *by design* (model-independent, fetched at runtime).
+- `app/server.py` still `import`s `tools/fetch_items` for the price refresh → fold that fetch
+  **into `app/backend/`** so the app has **no `tools/` import** (the last real coupling).
+
+Only after decoupling is the reorg safe; then update `tools/` path refs (`pack_model.py`,
+`build_dataset.py`, `icon_dups.py`, `predict.py`) `shared/ → training/` and smoke-test.
+
+**Open decisions:** `tools/` top-level (recommended) vs. nested under `training/`; icon-cache
+snapshot (68 MB) tracked in `training/icons/` vs. external (Kaggle inputs dataset already
+bundles it). See [TODO.md](TODO.md) "Clean app ⊥ training split".
 
 ## Database: JSON / JSONL (not SQLite, for now)
 
