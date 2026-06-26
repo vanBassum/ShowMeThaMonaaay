@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { Check, Copy, Loader2, ScanSearch } from "lucide-react"
+import { Check, Copy, Loader2, ScanSearch, X } from "lucide-react"
 
 import { cn, formatSessionTs } from "@/lib/utils"
 import { useServerState, type ScanItem } from "@/lib/server-state"
@@ -126,10 +126,20 @@ function PropagateDialog({
         className="flex max-h-[80vh] w-full max-w-md flex-col rounded-lg border bg-card p-4 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-2 text-sm font-medium">
-          <Copy className="size-4 text-orange-500" />
-          {boxes.length} other box{boxes.length === 1 ? "" : "es"} have the same detected
-          id
+        <div className="flex items-start gap-2 text-sm font-medium">
+          <Copy className="mt-0.5 size-4 shrink-0 text-orange-500" />
+          <span className="flex-1">
+            {boxes.length} other box{boxes.length === 1 ? "" : "es"} have the same detected
+            id
+          </span>
+          <button
+            type="button"
+            onClick={onSkip}
+            title="Close without changes"
+            className="-mt-1 -mr-1 rounded p-1 text-muted-foreground hover:bg-accent"
+          >
+            <X className="size-4" />
+          </button>
         </div>
         <p className="mt-1 text-xs text-muted-foreground">
           They're highlighted orange. Click any that are{" "}
@@ -161,30 +171,20 @@ function PropagateDialog({
             )
           })}
         </div>
-        <div className="mt-4 flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">{chosen.length} selected</span>
-          <div className="ml-auto flex gap-2">
-            <button
-              type="button"
-              onClick={onSkip}
-              className="rounded-md border px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent"
-            >
-              Just this one
-            </button>
-            <button
-              type="button"
-              onClick={() => onApply(chosen)}
-              disabled={!chosen.length}
-              className={cn(
-                "rounded-md border px-3 py-1.5 text-xs font-medium transition-colors",
-                chosen.length
-                  ? "border-amber-500/50 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400"
-                  : "text-muted-foreground"
-              )}
-            >
-              Mark {chosen.length} as {name}
-            </button>
-          </div>
+        <div className="mt-4 flex justify-end">
+          <button
+            type="button"
+            onClick={() => onApply(chosen)}
+            disabled={!chosen.length}
+            className={cn(
+              "rounded-md border px-3 py-1.5 text-xs font-medium transition-colors",
+              chosen.length
+                ? "border-amber-500/50 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400"
+                : "text-muted-foreground"
+            )}
+          >
+            Mark {chosen.length} as {name}
+          </button>
         </div>
       </div>
     </div>
