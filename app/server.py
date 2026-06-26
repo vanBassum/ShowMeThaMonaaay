@@ -9,9 +9,15 @@ Notes:
   (exclusive fullscreen can grab black).
 - Model + OCR are loaded once; a scan takes a few seconds (OCR per detected box).
 """
-import os, sys, io, json, time, threading, argparse
+import os, sys, io, json, time, threading, argparse, logging
+from functools import lru_cache
 from flask import Flask, jsonify, send_file, request, abort, Response
 from PIL import ImageGrab, Image
+
+# The Werkzeug dev server logs every request to the console; a big session fires hundreds
+# of image requests and synchronous console writes are slow (notably on Windows). Keep
+# warnings/errors, drop the per-request access log.
+logging.getLogger("werkzeug").setLevel(logging.WARNING)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)                            # repo root (anchor file paths here)
@@ -348,6 +354,14 @@ def cat_icon(item_id):
     return _cached(send_file(p), 7) if p else abort(404)   # browser-cache 7d (art rarely changes)
 
 
+@lru_cache(maxsize=4)
+def _raw_image(ts, _mtime):
+    """Decoded screenshot for a session, cached so the many per-box crop requests share a
+    single decode instead of re-reading/decoding the full PNG each time. Keyed on mtime so
+    a re-scan of the same id invalidates it."""
+    return Image.open(os.path.join(SESSIONS, ts, "raw.png")).convert("RGB")
+
+
 @app.route("/api/crop/<ts>")                     # on-screen crop, box=x0,y0,x1,y1
 def crop(ts):
     raw = os.path.join(SESSIONS, ts, "raw.png")
@@ -357,7 +371,8 @@ def crop(ts):
         box = tuple(int(v) for v in request.args["box"].split(","))
     except Exception:
         abort(400)
-    return _cached(_png(Image.open(raw).convert("RGB").crop(box)), 30, immutable=True)
+    img = _raw_image(ts, os.path.getmtime(raw))
+    return _cached(_png(img.crop(box)), 30, immutable=True)
 
 
 @app.route("/api/scan", methods=["POST"])
