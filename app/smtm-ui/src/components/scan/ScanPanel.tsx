@@ -165,25 +165,20 @@ function ItemRow({
 }
 
 function ItemList({
-  accent,
   items,
   ts,
   onEdit,
 }: {
-  accent: string // thin top bar colour — the only keep/ditch cue now the labels are gone
   items: AggItem[]
   ts: string | null
   onEdit: (item: AggItem) => void
 }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className={cn("mb-1.5 h-0.5 shrink-0 rounded-full", accent)} />
-      <ul className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pr-1">
-        {items.map((item, i) => (
-          <ItemRow key={`${item.icon_id}-${i}`} item={item} ts={ts} onEdit={onEdit} />
-        ))}
-      </ul>
-    </div>
+    <ul className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pr-1">
+      {items.map((item, i) => (
+        <ItemRow key={`${item.icon_id}-${i}`} item={item} ts={ts} onEdit={onEdit} />
+      ))}
+    </ul>
   )
 }
 
@@ -308,9 +303,9 @@ export function ScanPanel() {
 
       {result ? (
         <div className="flex min-h-0 flex-1 gap-4">
-          <ItemList accent="bg-emerald-500/70" items={keep} ts={ts} onEdit={setEditing} />
+          <ItemList items={keep} ts={ts} onEdit={setEditing} />
           <div className="w-px shrink-0 bg-border" />
-          <ItemList accent="bg-red-500/70" items={ditch} ts={ts} onEdit={setEditing} />
+          <ItemList items={ditch} ts={ts} onEdit={setEditing} />
         </div>
       ) : (
         <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed text-center">
