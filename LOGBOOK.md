@@ -5,6 +5,28 @@ See `CLAUDE.md` for the format rule.
 
 ---
 
+## 2026-06-26 — Direction: app goes read-only; users report, we diagnose (`yolo-without-detector`)
+
+**What.** Pivoted away from local user corrections. The app no longer edits the link map;
+instead users **flag** wrong detections and we **diagnose** offline. Spec in
+`docs/REPORTING.md`: a diagnose page (evolves `inspect.html`) with clickable boxes
+(wrong item / not an item / optional hint) + fat-pen-to-bbox for missed items, batched into
+one report bundle. Includes the report payload (crop + icon_id + shown item + user icon hash
++ model fingerprint) that lets us route each flag to retrain vs. link-map fix.
+
+**Why.** A wrong result has ≥3 causes — detector wrong / link wrong / Tarkov changed the
+icon — and the app can't tell them apart, so a local "fix" papers over the wrong layer.
+Flagging + evidence keeps the judgement with us; ties into the icon-hash provenance.
+
+**Result.** Design only (not implemented). Existing `inspect.html` is ~80% of the page
+(pan/zoom + box overlay + draw-missed already present); change is verb fix→report + read-only.
+
+**Next.** Build the diagnose page on inspect.html; strip write endpoints (`/api/override`,
+local `links.jsonl` appends); local report queue first, server endpoint later. Decide
+screenshot privacy (whole-shot opt-in vs crops-only).
+
+---
+
 ## 2026-06-26 — Model packaging: combined archive + first artifact uploaded (`yolo-without-detector`)
 
 **What.** Defined how models ship and uploaded the first one. `docs/PACKAGING.md` = the
