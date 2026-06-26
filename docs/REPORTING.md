@@ -50,6 +50,8 @@ offline triage. One bundle per session:
   "model": { "name": "barry", "version": "v3",
              "icons_fingerprint": "b2a2d2ab…" }, // which model produced the scan
   "session_ts": "20260625-222833",
+  "scan": { /* the full session scan.json: every detection + the projection
+              (items, unidentified, totals, per-detection source/certainty) */ },
   "flags": [
     { "type": "wrong_item|not_an_item|missed",
       "box": [x0,y0,x1,y1],
@@ -105,7 +107,8 @@ legacy `/api/override` + `add_manual_link` write path was removed, and `scan.py`
 link map straight from the model package (no runtime writes).
 
 **Pending:**
-- Build the **report bundle** from fixes (crop + evidence + fingerprint) → `reports_dir()`.
+- Build the **report bundle** from fixes (crop + evidence + fingerprint + the full session
+  `scan.json`) → `reports_dir()`.
 - `tools/apply_reports.py` assessor → baseline links → repackage.
 - Report **transport** (local export → server endpoint).
 - `reports_cutoff` in the manifest + `pack_model.py`.
