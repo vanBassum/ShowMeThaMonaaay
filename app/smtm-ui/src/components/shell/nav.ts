@@ -1,13 +1,12 @@
 import {
   Crosshair,
   History,
-  Images,
   ScanSearch,
   Settings,
   type LucideIcon,
 } from "lucide-react"
 
-export type NavId = "scan" | "sessions" | "analysis" | "gallery" | "settings"
+export type NavId = "scan" | "sessions" | "analysis" | "settings"
 
 export type NavItem = {
   id: NavId
@@ -17,9 +16,9 @@ export type NavItem = {
   blurb: string
 }
 
-// The product's top-level sections. `scan` is the default (live valuer);
-// the rest mirror the existing backend surfaces (saved sessions, real-crop
-// gallery, settings). Wire each to real content as we migrate features in.
+// The product's top-level sections. `scan` is the default (live valuer); the rest are
+// saved sessions, the per-session analysis/report view, and settings. Wire each to real
+// content as we migrate features in.
 export const NAV_ITEMS: NavItem[] = [
   {
     id: "scan",
@@ -38,12 +37,6 @@ export const NAV_ITEMS: NavItem[] = [
     label: "Analysis",
     icon: ScanSearch,
     blurb: "Open a session to inspect its screenshot with detection boxes overlaid.",
-  },
-  {
-    id: "gallery",
-    label: "Gallery",
-    icon: Images,
-    blurb: "Real in-game crops collected from corrections and missed boxes.",
   },
   {
     id: "settings",
