@@ -1,8 +1,9 @@
 import { useState } from "react"
-import { Check, Crosshair, Loader2 } from "lucide-react"
+import { Check, Crosshair, Loader2, Search } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { CorrectionDialog } from "@/components/analysis/CorrectionDialog"
 import { boxKey, useFixes, type Flag } from "@/lib/fixes"
 import { cn } from "@/lib/utils"
@@ -164,23 +165,19 @@ function ItemRow({
 }
 
 function ItemList({
-  title,
   accent,
   items,
   ts,
   onEdit,
 }: {
-  title: string
-  accent: string
+  accent: string // thin top bar colour — the only keep/ditch cue now the labels are gone
   items: AggItem[]
   ts: string | null
   onEdit: (item: AggItem) => void
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className={cn("mb-2 text-xs font-semibold tracking-wide uppercase", accent)}>
-        {title} <span className="text-muted-foreground">({items.length})</span>
-      </div>
+      <div className={cn("mb-1.5 h-0.5 shrink-0 rounded-full", accent)} />
       <ul className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pr-1">
         {items.map((item, i) => (
           <ItemRow key={`${item.icon_id}-${i}`} item={item} ts={ts} onEdit={onEdit} />
@@ -194,6 +191,7 @@ export function ScanPanel() {
   const { state } = useServerState()
   const { flags, flagList, dirty, saving, applyFlags, removeFlags, save } = useFixes()
   const [editing, setEditing] = useState<AggItem | null>(null)
+  const [query, setQuery] = useState("")
 
   const status = state?.status ?? "idle"
   const result = state?.result ?? null
@@ -217,8 +215,14 @@ export function ScanPanel() {
   const total = resolved.reduce((s, it) => s + (it.value ?? 0), 0)
   const ranked = dedupe(resolved)
   const half = Math.ceil(ranked.length / 2)
-  const keep = ranked.slice(0, half)
-  const ditch = ranked.slice(half).reverse()
+  // The search filters each column in place, so a match keeps its keep/ditch side.
+  const q = query.trim().toLowerCase()
+  const match = (it: AggItem) =>
+    !q ||
+    (it.name ?? "").toLowerCase().includes(q) ||
+    (it.short ?? "").toLowerCase().includes(q)
+  const keep = ranked.slice(0, half).filter(match)
+  const ditch = ranked.slice(half).reverse().filter(match)
 
   // A fix on a deduped row applies to every member box of that row.
   const saveRowFix = (flag: Flag) => {
@@ -263,7 +267,21 @@ export function ScanPanel() {
         )}
 
         {result && (
-          <div className="ml-auto flex items-center gap-2">
+          <div className="flex flex-1 justify-center">
+            <div className="relative w-full max-w-xs">
+              <Search className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Filter items…"
+                className="h-8 pl-8"
+              />
+            </div>
+          </div>
+        )}
+
+        {result && (
+          <div className="flex items-center gap-2">
             {!dirty && flagList.length > 0 && (
               <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
                 <Check className="size-3.5" /> Saved
@@ -290,21 +308,9 @@ export function ScanPanel() {
 
       {result ? (
         <div className="flex min-h-0 flex-1 gap-4">
-          <ItemList
-            title="Keep"
-            accent="text-emerald-500"
-            items={keep}
-            ts={ts}
-            onEdit={setEditing}
-          />
+          <ItemList accent="bg-emerald-500/70" items={keep} ts={ts} onEdit={setEditing} />
           <div className="w-px shrink-0 bg-border" />
-          <ItemList
-            title="Ditch"
-            accent="text-red-500"
-            items={ditch}
-            ts={ts}
-            onEdit={setEditing}
-          />
+          <ItemList accent="bg-red-500/70" items={ditch} ts={ts} onEdit={setEditing} />
         </div>
       ) : (
         <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed text-center">
