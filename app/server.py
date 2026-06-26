@@ -9,7 +9,7 @@ Notes:
   (exclusive fullscreen can grab black).
 - Model + OCR are loaded once; a scan takes a few seconds (OCR per detected box).
 """
-import os, sys, io, json, time, threading
+import os, sys, io, json, time, threading, argparse
 from flask import Flask, jsonify, send_file, request, abort, Response
 from PIL import ImageGrab, Image
 
@@ -181,6 +181,37 @@ def latest():
     return jsonify(_state)
 
 
+@app.route("/api/sessions")                 # saved scans, newest first (replay in the UI)
+def sessions_list():
+    if not os.path.isdir(SESSIONS):
+        return jsonify([])
+    ids = sorted((d for d in os.listdir(SESSIONS)
+                  if os.path.exists(os.path.join(SESSIONS, d, "scan.json"))), reverse=True)
+    return jsonify(ids)
+
+
+def load_session(ts):
+    """Replay a saved session into state WITHOUT capturing/scanning — re-projects the
+    stored detections so prices/links are current (falls back to the stored result).
+    Lets the frontend be developed against real data with no game/model running."""
+    p = os.path.join(SESSIONS, ts or "", "scan.json")
+    if not ts or not os.path.exists(p):
+        return False
+    stored = json.load(open(p, encoding="utf-8"))
+    try:
+        res = scanmod.project(scanmod.dets_of(stored))
+    except Exception:
+        res = stored
+    res["ts"] = ts
+    _set(status="done", result=res, ts=ts, error=None)
+    return True
+
+
+@app.route("/api/load-session/<ts>", methods=["POST"])   # replay a saved session into state
+def load_session_route(ts):
+    return jsonify(ok=load_session(ts))
+
+
 @app.route("/api/stream")           # Server-Sent Events: push state on every change
 def stream():
     def gen():
@@ -300,16 +331,27 @@ def missed():
 
 
 if __name__ == "__main__":
-    print("loading model...")
-    get_model()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--session", help="preload a saved session id into state (dev/testing)")
+    ap.add_argument("--no-model", action="store_true",
+                    help="skip eager model load + F2 hotkey (frontend dev; a live scan still "
+                         "lazy-loads the model on demand)")
+    args = ap.parse_args()
+    if not args.no_model:
+        print("loading model...")
+        get_model()
     age = scanmod.catalog_age()
     print(f"prices cached {age/3600:.1f}h ago (auto-refresh > {PRICES_TTL//3600}h)")
     threading.Thread(target=price_refresher, daemon=True).start()  # 24h price cache
-    try:
-        import keyboard
-        keyboard.add_hotkey("f2", trigger)
-        print("F2 = scan.")
-    except Exception as e:
-        print(f"(F2 hotkey unavailable: {e} — use the Scan button in the UI)")
+    if args.session:
+        print(f"loaded session {args.session}" if load_session(args.session)
+              else f"(session {args.session} not found)")
+    if not args.no_model:
+        try:
+            import keyboard
+            keyboard.add_hotkey("f2", trigger)
+            print("F2 = scan.")
+        except Exception as e:
+            print(f"(F2 hotkey unavailable: {e} — use the Scan button in the UI)")
     print(f"UI: http://127.0.0.1:{PORT}")
     app.run(port=PORT, threaded=True)
