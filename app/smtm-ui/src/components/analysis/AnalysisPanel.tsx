@@ -11,23 +11,20 @@ const boxKey = (b: number[]) => b.join(",")
 
 /** One detection drawn over the screenshot. Boxes are in source-image pixels, so we
  *  position them as percentages of the natural size — exact at any display scale.
- *  Click to report what the box should be. Colour states:
- *    emerald/red = identified/unidentified (unflagged)
- *    amber (solid) = flagged "should be X"   ·   red (solid) = flagged "not an item"
- *    orange (dashed) = candidate — same detected id as something you already fixed */
+ *  Click to report what the box should be. Colour states (labels are hover-only):
+ *    emerald/red = identified/unidentified   ·   amber = flagged "should be X"
+ *    red (solid) = flagged "not an item" */
 function Box({
   item,
   nat,
   identified,
   flag,
-  candidate,
   onClick,
 }: {
   item: ScanItem
   nat: { w: number; h: number }
   identified: boolean
   flag?: Flag
-  candidate?: string
   onClick: () => void
 }) {
   const [x0, y0, x1, y1] = item.box
@@ -42,11 +39,9 @@ function Box({
     ? flag.type === "not_an_item"
       ? "✕ not an item"
       : `→ ${flag.corrected?.name ?? ""}`
-    : candidate
-      ? `same id → ${candidate}?`
-      : identified
-        ? `${item.name}${item.per_slot != null ? ` · ₽${RUB(item.per_slot)}/sl` : ""}`
-        : `unidentified (${item.icon_id})`
+    : identified
+      ? `${item.name}${item.per_slot != null ? ` · ₽${RUB(item.per_slot)}/sl` : ""}`
+      : `unidentified (${item.icon_id})`
   return (
     <button
       type="button"
@@ -57,11 +52,9 @@ function Box({
           ? flag.type === "not_an_item"
             ? "border-red-400 bg-red-500/25"
             : "border-amber-400 bg-amber-400/25"
-          : candidate
-            ? "border-dashed border-orange-400 bg-orange-400/25 hover:bg-orange-400/35"
-            : identified
-              ? "border-emerald-500/80 hover:bg-emerald-500/20"
-              : "border-red-500/80 hover:bg-red-500/20"
+          : identified
+            ? "border-emerald-500/80 hover:bg-emerald-500/20"
+            : "border-red-500/80 hover:bg-red-500/20"
       )}
       style={style}
       title={label}
@@ -69,19 +62,14 @@ function Box({
       <span
         className={cn(
           "pointer-events-none absolute -top-px left-0 max-w-[40vw] -translate-y-full truncate rounded-t px-1 py-0.5 text-[10px] font-medium whitespace-nowrap text-white",
-          // Labels are hover-only to keep the screenshot clear; the box fill colour
-          // (amber=fixed, orange=candidate, emerald/red=identified/unidentified) is the
-          // at-a-glance state.
-          "hidden group-hover:block",
+          "hidden group-hover:block", // label hover-only to keep the screenshot clear
           flagged
             ? flag.type === "not_an_item"
               ? "bg-red-600"
               : "bg-amber-600"
-            : candidate
-              ? "bg-orange-500"
-              : identified
-                ? "bg-emerald-600"
-                : "bg-red-600"
+            : identified
+              ? "bg-emerald-600"
+              : "bg-red-600"
         )}
       >
         {label}
@@ -124,7 +112,7 @@ function PropagateDialog({
       onClick={onSkip}
     >
       <div
-        className="flex max-h-[80vh] w-full max-w-md flex-col rounded-lg border bg-card p-4 shadow-xl"
+        className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-lg border bg-card p-4 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start gap-2 text-sm font-medium">
@@ -143,11 +131,10 @@ function PropagateDialog({
           </button>
         </div>
         <p className="mt-1 text-xs text-muted-foreground">
-          They're highlighted orange. Click any that are{" "}
-          <span className="font-medium">not</span>{" "}
-          <span className="font-medium text-foreground">{name}</span> to deselect them.
+          Deselect any that are <span className="font-medium">not</span>{" "}
+          <span className="font-medium text-foreground">{name}</span>.
         </p>
-        <div className="mt-3 grid min-h-0 flex-1 grid-cols-6 gap-1.5 overflow-y-auto">
+        <div className="mt-3 grid min-h-0 flex-1 grid-cols-4 gap-2 overflow-y-auto">
           {boxes.map((it, i) => {
             const on = selected.has(i)
             return (
@@ -221,16 +208,6 @@ export function AnalysisPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
     () => (result ? [...result.items, ...result.unidentified] : []),
     [result]
   )
-
-  // icon-id -> the correction a user already chose for it (drives the orange "same id"
-  // candidate hints on still-unflagged boxes).
-  const correctionByIcon = useMemo(() => {
-    const m: Record<string, { item_id: string; name: string }> = {}
-    for (const f of Object.values(flags)) {
-      if (f.type === "wrong_item" && f.corrected) m[f.icon_id] = f.corrected
-    }
-    return m
-  }, [flags])
 
   if (!ts || !result) {
     return (
@@ -392,11 +369,6 @@ export function AnalysisPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
                   nat={nat}
                   identified={false}
                   flag={flags[boxKey(it.box)]}
-                  candidate={
-                    !flags[boxKey(it.box)]
-                      ? correctionByIcon[it.icon_id]?.name
-                      : undefined
-                  }
                   onClick={() => setEditing(it)}
                 />
               ))}
@@ -407,11 +379,6 @@ export function AnalysisPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
                   nat={nat}
                   identified
                   flag={flags[boxKey(it.box)]}
-                  candidate={
-                    !flags[boxKey(it.box)]
-                      ? correctionByIcon[it.icon_id]?.name
-                      : undefined
-                  }
                   onClick={() => setEditing(it)}
                 />
               ))}
