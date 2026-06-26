@@ -35,7 +35,8 @@ links/icon_item_map.json   # icon-id -> {item_id, score, margin}  (visual matche
 links/icon_overrides.json  # CURATED manual overrides  (icon-id -> item_id)
 links/links.jsonl          # CURATED baseline link events (ours, not the user's)
 icons/icon_hashes.json     # per-icon provenance hashes of the TRAINED icon set (<1 MB)
-manifest.json              # ties it all together (below)
+MODEL_CARD.md              # human-readable card: how it was trained, what changed vs predecessor
+manifest.json              # machine-readable header that ties it all together (below)
 ```
 
 The catalog (56 MB of icons, 2.9 MB `items.json`) stays **out** — it's live data.
@@ -58,13 +59,16 @@ The self-describing header. Lets the app verify the parts belong together and de
 {
   "model": "barry",
   "version": "v3",
+  "parent": "barry-v2",            // predecessor it warm-started from (null for a root model)
   "classes": 3672,                 // class count == entries in the .pt head
   "icon_count": 3672,
   "icons_fingerprint": "<sha256>", // sha256 of the sorted "id:sha256" lines from icon_hashes.json
+  "reports_cutoff": "2026-06-26T...", // reports with ts <= this were folded in (see below)
   "files": {                       // integrity — verified after download
     "model/best.pt":            {"sha256": "..."},
     "links/icon_item_map.json": {"sha256": "..."},
-    "icons/icon_hashes.json":   {"sha256": "..."}
+    "icons/icon_hashes.json":   {"sha256": "..."},
+    "MODEL_CARD.md":            {"sha256": "..."}
   },
   "built_at": "2026-06-26T...",
   "min_app_version": "0.1.0"       // app refuses an archive it's too old to load
@@ -73,6 +77,52 @@ The self-describing header. Lets the app verify the parts belong together and de
 
 `icons_fingerprint` is a single value summarising "this model was trained on *this* icon
 set" — the runtime compares it (and the per-icon hashes) against the player's live cache.
+`reports_cutoff` is the **report-inclusion boundary**: every report whose timestamp is
+`<= reports_cutoff` was considered for this model. **Freeze it at the *start* of retraining**
+— anything reported during/after training has a later timestamp and automatically rolls to
+the next model, so there's no "did this sneak in?" ambiguity. Inclusion is reasoned about
+*within an `icons_fingerprint` lineage* (icon-id-based fixes only apply to a matching vocab).
+
+## Model cards & the root index
+
+`manifest.json` is machine-readable; the **cards** are the human story of how a model came
+to be. Two levels: one card *per model* (shipped in its archive), and one **root index**
+that describes the whole model program.
+
+### Per-model card — `MODEL_CARD.md` (shipped in each archive)
+
+The human companion to `manifest.json`. `tools/pack_model.py` bundles it; the existing
+`shared/models/archive/<name>/MODEL_CARD.txt` convention is the seed — formalise it to
+Markdown and ship it. Sections:
+
+- **Identity** — name, version, parent, `built_at`, `classes`, `icons_fingerprint`.
+- **What changed vs. predecessor** — the single most useful line: the delta from the parent
+  (augmentations added, vocabulary change, link/bug fixes, why this is a new *version* or a
+  new *name*). E.g. *"v3 = v2 + 90° rotation + colored-cell-bg aug; rotated items 0/24 → 24/24."*
+- **Training** — dataset (synthetic gen + the **cumulative** augmentation list), warm-start
+  parent, epochs / imgsz / patience, hardware, wall-clock, where it ran (local / Kaggle).
+- **Results** — mAP50 + real-stash detection counts / eval notes; honest about regressions.
+- **Class vocabulary** — count, ambiguous (exact-dup) handling, dedupe collapse if any.
+- **Reports included** — `reports_cutoff` timestamp **and** the report/fix batch IDs folded
+  in, so the model is auditable down to its training inputs (a bad link traces to a report).
+
+### Root index — the "lots of info" master
+
+One authoritative record *above* individual packages: the whole model line, for both humans
+and the app's model picker. This is what `docs/MODELS.md` (lineage) becomes, plus a
+machine-readable twin:
+
+- **Every model line + version**, parent lineage (`barry v1 → v2 → v3 …`), each version's
+  `icons_fingerprint` + release tag (`model-<name>`), and a pointer to its `MODEL_CARD.md`.
+- **Cumulative augmentation history** and why each new *name* (a deliberate vocabulary change).
+- **Reports-inclusion timeline** — the `reports_cutoff` per version, i.e. full provenance of
+  which reports shaped which model across the whole line.
+- **Shared context** — the link-database model and the live-catalog source (tarkov.dev).
+
+Ship it two ways: `docs/MODELS.md` stays the human root card (in-repo), and publish a
+machine-readable **`models-index.json`** (its own release tag, e.g. `models-index`) so the
+app can discover available models, their lineage, fingerprints, and compatibility without
+downloading each archive first.
 
 ## Icon-hash provenance (`icon_hashes.json`)
 
@@ -132,10 +182,14 @@ EFT training-icon cache, the synthetic YOLO dataset (`data/yolo`), `runs/`, `gal
    location — it's currently the visual-matcher output and is not packageable as-is. *(blocker)*
 2. **Emit `icon_hashes.json`** from `build_dataset.py` (reuse `icon_dups.sig`), atomic with
    the trained class set.
-3. **Assembler script** (`tools/pack_model.py`?) — collect model + link map + hashes, write
-   `manifest.json` with sha256s + fingerprint, zip it.
+3. **Assembler script** `tools/pack_model.py` — collect model + link map + hashes, write
+   `manifest.json` with sha256s + fingerprint, zip it. *(built; extend per #7–8)*
 4. **CI release workflow** — on a model tag, run the assembler and attach the zip to a GitHub
    release.
 5. **First-run downloader** in the app — fetch by version, verify, extract, load; plus the
-   catalog/icon fetch-on-demand path.
+   catalog/icon fetch-on-demand path. *(model registry + download built in `backend/models.py`)*
 6. **Drift check** (later) — re-hash live cache vs `icon_hashes.json`; feed report-to-server.
+7. **Bundle `MODEL_CARD.md`** in the archive (formalise the `MODEL_CARD.txt` convention to
+   Markdown) and add `parent` + `reports_cutoff` to `manifest.json`. `pack_model.py` emits both.
+8. **Root index** — make `docs/MODELS.md` the human root card and generate a machine-readable
+   `models-index.json` (own release tag) for the app's model picker / lineage discovery.
