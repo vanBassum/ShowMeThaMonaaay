@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react"
-import { History, RotateCw, Wrench } from "lucide-react"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { History, ImagePlus, Loader2, RotateCw, Wrench } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -36,6 +36,9 @@ export function SessionsModal({
   const { state, refresh: refreshState } = useServerState()
   const [sessions, setSessions] = useState<SessionCard[]>([])
   const [loading, setLoading] = useState(true)
+  const [creating, setCreating] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
   const activeTs = state?.ts ?? null
 
   const refresh = useCallback(async () => {
@@ -65,6 +68,40 @@ export function SessionsModal({
     }
   }
 
+  // Upload an image -> scan it into a new session (same pipeline as an F2 capture). The
+  // scan runs in the background; poll /api/latest until it's done, then load the result.
+  const createFromImage = async (file: File) => {
+    setError(null)
+    setCreating(true)
+    try {
+      const body = new FormData()
+      body.append("file", file)
+      const res = await fetch("/api/scan-image", { method: "POST", body })
+      if (!res.ok) {
+        setError(res.status === 409 ? "A scan is already running." : "Couldn't read that image.")
+        return
+      }
+      // wait for the background scan to finish (status -> done | error)
+      for (let i = 0; i < 120; i++) {
+        await new Promise((r) => setTimeout(r, 500))
+        const s = await (await fetch("/api/latest")).json()
+        if (s.status === "done" && s.ts) {
+          await load(s.ts as string)
+          return
+        }
+        if (s.status === "error") {
+          setError(s.error ?? "Scan failed.")
+          return
+        }
+      }
+      setError("Scan timed out.")
+    } catch {
+      setError("Backend offline.")
+    } finally {
+      setCreating(false)
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[80vh] flex-col sm:max-w-3xl">
@@ -74,21 +111,51 @@ export function SessionsModal({
             <span className="text-sm font-normal text-muted-foreground">
               {sessions.length} saved scan{sessions.length === 1 ? "" : "s"}
             </span>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => void refresh()}
-              className="ml-auto text-muted-foreground"
-            >
-              <RotateCw className={cn("size-3.5", loading && "animate-spin")} />
-              Refresh
-            </Button>
+            <div className="ml-auto flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={creating}
+                onClick={() => fileRef.current?.click()}
+                className="border-amber-500/50 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 hover:text-amber-700 dark:text-amber-400"
+              >
+                {creating ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <ImagePlus className="size-3.5" />
+                )}
+                {creating ? "Scanning…" : "Create from image"}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => void refresh()}
+                className="text-muted-foreground"
+              >
+                <RotateCw className={cn("size-3.5", loading && "animate-spin")} />
+                Refresh
+              </Button>
+            </div>
           </DialogTitle>
           <DialogDescription>
             Pick a scan to load it — it stays loaded as you switch pages.
           </DialogDescription>
         </DialogHeader>
+
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            e.target.value = "" // allow re-picking the same file
+            if (f) void createFromImage(f)
+          }}
+        />
+        {error && <p className="text-sm text-destructive">{error}</p>}
 
         {sessions.length === 0 ? (
           <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed py-10 text-center">

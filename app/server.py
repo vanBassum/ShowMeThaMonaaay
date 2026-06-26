@@ -90,23 +90,43 @@ def ensure_model_bg(name=None):
         _set(model={"name": name, "state": "error", "error": str(e)})
 
 
+def _scan_image(img):
+    """Save an image as a new session, run the detector over it, and push the result to
+    the UI — the shared core of an F2 capture and a manual image upload. Assumes the scan
+    lock is held. Returns the new session id."""
+    ts = time.strftime("%Y%m%d-%H%M%S")
+    sess = os.path.join(SESSIONS, ts)
+    os.makedirs(sess, exist_ok=True)
+    img.save(os.path.join(sess, "raw.png"))
+    _set(status="scanning", ts=ts)
+    res = scanmod.scan(img, get_model())
+    res["ts"] = ts
+    json.dump(res, open(os.path.join(sess, "scan.json"), "w"))
+    # annotated copy for later review/tooling (green=identified, red=unidentified)
+    scanmod.annotate(img, res).save(os.path.join(sess, "scan.png"))
+    _set(status="done", result=res, ts=ts)
+    return ts
+
+
 def do_scan():
     if not _lock.acquire(blocking=False):
         return  # a scan is already running -> ignore (no duplicate screenshot)
     try:
         _set(status="capturing", error=None)
-        img = ImageGrab.grab().convert("RGB")
-        ts = time.strftime("%Y%m%d-%H%M%S")
-        sess = os.path.join(SESSIONS, ts)
-        os.makedirs(sess, exist_ok=True)
-        img.save(os.path.join(sess, "raw.png"))
-        _set(status="scanning", ts=ts)
-        res = scanmod.scan(img, get_model())
-        res["ts"] = ts
-        json.dump(res, open(os.path.join(sess, "scan.json"), "w"))
-        # annotated copy for later review/tooling (green=identified, red=unidentified)
-        scanmod.annotate(img, res).save(os.path.join(sess, "scan.png"))
-        _set(status="done", result=res, ts=ts)
+        _scan_image(ImageGrab.grab().convert("RGB"))
+    except Exception as e:
+        _set(status="error", error=str(e))
+    finally:
+        _lock.release()
+
+
+def do_scan_image(img):
+    """Background worker for an uploaded image — same path as do_scan, no screen grab."""
+    if not _lock.acquire(blocking=False):
+        return
+    try:
+        _set(status="scanning", error=None)
+        _scan_image(img)
     except Exception as e:
         _set(status="error", error=str(e))
     finally:
@@ -343,6 +363,23 @@ def crop(ts):
 @app.route("/api/scan", methods=["POST"])
 def api_scan():
     trigger()
+    return jsonify(ok=True)
+
+
+@app.route("/api/scan-image", methods=["POST"])  # create a session from an uploaded image
+def api_scan_image():
+    """Upload an image (multipart 'file') -> new session, scanned like an F2 capture.
+    Runs in the background; the UI follows status via the normal state stream."""
+    f = request.files.get("file")
+    if not f:
+        abort(400)
+    try:
+        img = Image.open(f.stream).convert("RGB")
+    except Exception:
+        abort(400, "not a readable image")
+    if _lock.locked():
+        abort(409, "a scan is already running")
+    threading.Thread(target=do_scan_image, args=(img,), daemon=True).start()
     return jsonify(ok=True)
 
 
