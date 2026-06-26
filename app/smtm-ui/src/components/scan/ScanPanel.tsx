@@ -15,6 +15,7 @@ const sourceStyle: Record<string, string> = {
   ocr: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
   override: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
   corrected: "bg-amber-500/20 text-amber-700 dark:text-amber-300",
+  added: "bg-sky-500/15 text-sky-600 dark:text-sky-400",
 }
 
 /** A run of identical items collapsed into one row (keeps its member boxes so a fix
@@ -51,6 +52,27 @@ function resolveWithFixes(result: ScanResult, flags: Record<string, Flag>): Scan
   }
   result.items.forEach((it) => consider(it, true))
   result.unidentified.forEach((it) => consider(it, false))
+  // Items the detector missed and the user added by hand (no detection behind them) —
+  // they live only in the fixes, so synthesize a row from the chosen catalog item.
+  for (const f of Object.values(flags)) {
+    if (f.type !== "missed_item" || !f.corrected) continue
+    const w = f.corrected.width ?? 1
+    const h = f.corrected.height ?? 1
+    const value = f.corrected.value ?? 0
+    out.push({
+      box: f.box,
+      icon_id: "",
+      id: f.corrected.item_id,
+      name: f.corrected.name,
+      short: f.corrected.short,
+      value,
+      width: w,
+      height: h,
+      slots: w * h,
+      per_slot: value / (w * h),
+      source: "added",
+    })
+  }
   return out
 }
 

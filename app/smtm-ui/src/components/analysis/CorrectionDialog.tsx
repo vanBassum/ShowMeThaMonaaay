@@ -33,6 +33,7 @@ export function CorrectionDialog({
   ts,
   item,
   existing,
+  forMissed = false,
   onClose,
   onSave,
   onClear,
@@ -40,6 +41,9 @@ export function CorrectionDialog({
   ts: string
   item: ScanItem
   existing?: Flag
+  /** True when identifying a box the user drew over a missed item (no detection behind
+   *  it): emit a "missed_item" flag and drop the false-positive ("Not an item") action. */
+  forMissed?: boolean
   onClose: () => void
   onSave: (flag: Flag) => void
   onClear: () => void
@@ -50,7 +54,9 @@ export function CorrectionDialog({
   const inputRef = useRef<HTMLInputElement>(null)
 
   const cropUrl = `/api/crop/${ts}?box=${item.box.join(",")}`
-  const shown = item.name ?? `unidentified (${item.icon_id})`
+  const shown = forMissed
+    ? (existing?.corrected?.name ?? "Pick the item")
+    : (item.name ?? `unidentified (${item.icon_id})`)
 
   // Debounced catalog search.
   useEffect(() => {
@@ -76,9 +82,9 @@ export function CorrectionDialog({
   const pick = (h: Hit) =>
     onSave({
       box: item.box,
-      icon_id: item.icon_id,
-      type: "wrong_item",
-      shown: { item_id: item.id, name: item.name },
+      icon_id: forMissed ? "" : item.icon_id,
+      type: forMissed ? "missed_item" : "wrong_item",
+      shown: forMissed ? undefined : { item_id: item.id, name: item.name },
       // carry the catalog facts so the scan list can re-value the corrected item
       corrected: {
         item_id: h.id,
@@ -114,7 +120,9 @@ export function CorrectionDialog({
             className="size-14 shrink-0 rounded border bg-muted object-contain"
           />
           <div className="min-w-0 flex-1">
-            <DialogDescription className="text-[11px]">detected as</DialogDescription>
+            <DialogDescription className="text-[11px]">
+              {forMissed ? "missed item — what is it?" : "detected as"}
+            </DialogDescription>
             <DialogTitle className="truncate text-sm font-medium">{shown}</DialogTitle>
             {existing?.corrected && (
               <div className="truncate text-[11px] text-amber-600 dark:text-amber-400">
@@ -175,18 +183,20 @@ export function CorrectionDialog({
         </ul>
 
         <DialogFooter className="flex-row justify-start gap-2 border-t p-2 sm:justify-start">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={markNotItem}
-            className={cn(
-              existing?.type === "not_an_item" &&
-                "border-red-500/50 text-red-600 dark:text-red-400"
-            )}
-          >
-            <Ban className="size-3.5" /> Not an item
-          </Button>
+          {!forMissed && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={markNotItem}
+              className={cn(
+                existing?.type === "not_an_item" &&
+                  "border-red-500/50 text-red-600 dark:text-red-400"
+              )}
+            >
+              <Ban className="size-3.5" /> Not an item
+            </Button>
+          )}
           {existing && (
             <Button
               type="button"
@@ -195,7 +205,7 @@ export function CorrectionDialog({
               onClick={onClear}
               className="text-muted-foreground"
             >
-              <Trash2 className="size-3.5" /> Remove flag
+              <Trash2 className="size-3.5" /> {forMissed ? "Remove box" : "Remove flag"}
             </Button>
           )}
         </DialogFooter>

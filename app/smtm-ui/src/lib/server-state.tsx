@@ -20,7 +20,7 @@ export type ModelInfo = {
 export type ScanItem = {
   box: [number, number, number, number]
   icon_id: string
-  source: "yolo" | "ocr" | "override" | "corrected" | null
+  source: "yolo" | "ocr" | "override" | "corrected" | "added" | null
   id?: string
   name?: string
   short?: string

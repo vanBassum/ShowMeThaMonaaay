@@ -11,12 +11,14 @@ import {
 import { useServerState, type ScanItem } from "./server-state"
 
 /** A user's decision about a detection box. `corrected` set => "should be X" (carries the
- *  catalog facts so the scan list can re-value it); type "not_an_item" => false positive.
+ *  catalog facts so the scan list can re-value it); type "not_an_item" => false positive;
+ *  type "missed_item" => a box the user drew over an item the detector missed (no detection
+ *  behind it — `corrected` is the item they identified, ground-truth for training).
  *  Fixes are session-scoped (saved with the session); they never edit the link map. */
 export type Flag = {
   box: [number, number, number, number]
   icon_id: string
-  type: "wrong_item" | "not_an_item"
+  type: "wrong_item" | "not_an_item" | "missed_item"
   shown?: { item_id?: string; name?: string }
   corrected?: {
     item_id: string
