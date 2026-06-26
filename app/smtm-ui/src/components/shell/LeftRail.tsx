@@ -1,4 +1,4 @@
-import { Moon, Sun, Target } from "lucide-react"
+import { Grip, Moon, Sun } from "lucide-react"
 
 import { useTheme } from "@/components/theme-provider"
 import { cn } from "@/lib/utils"
@@ -59,14 +59,24 @@ function ThemeToggle() {
 export function LeftRail({
   active,
   onSelect,
+  onOpenSessions,
 }: {
   active: NavId
   onSelect: (id: NavId) => void
+  onOpenSessions: () => void
 }) {
   return (
     <aside className="flex w-20 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
-      <div className="flex flex-col items-center gap-1 px-2 pt-3 pb-2">
-        <Target className="size-7 text-amber-500" />
+      <div className="flex flex-col items-center gap-1 px-2 pt-2 pb-2">
+        <button
+          type="button"
+          onClick={onOpenSessions}
+          title="Sessions"
+          className={cn(railButtonClass, "text-sidebar-foreground")}
+        >
+          <Grip className="size-5 text-amber-500" />
+          <span className="leading-tight">Sessions</span>
+        </button>
       </div>
       <div className="mx-2 mb-2 h-px bg-border" />
       <div className="flex flex-1 flex-col gap-1 overflow-y-auto px-2">

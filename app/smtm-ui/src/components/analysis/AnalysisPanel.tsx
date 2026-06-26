@@ -12,7 +12,6 @@ import {
 } from "@/components/ui/dialog"
 import { cn, formatSessionTs } from "@/lib/utils"
 import { useServerState, type ScanItem } from "@/lib/server-state"
-import type { NavId } from "@/components/shell/nav"
 import { CorrectionDialog, type Flag } from "./CorrectionDialog"
 
 const RUB = (n: number) => n.toLocaleString("en-US")
@@ -193,7 +192,7 @@ function PropagateDialog({
   )
 }
 
-export function AnalysisPanel({ onNavigate }: { onNavigate: (id: NavId) => void }) {
+export function AnalysisPanel({ onOpenSessions }: { onOpenSessions: () => void }) {
   const { state } = useServerState()
   const ts = state?.ts ?? null
   const result = state?.result ?? null
@@ -254,7 +253,7 @@ export function AnalysisPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
             No session loaded. Open one from{" "}
             <button
               type="button"
-              onClick={() => onNavigate("sessions")}
+              onClick={onOpenSessions}
               className="font-medium text-amber-600 hover:underline dark:text-amber-400"
             >
               Sessions

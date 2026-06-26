@@ -1,12 +1,6 @@
-import {
-  Crosshair,
-  History,
-  ScanSearch,
-  Settings,
-  type LucideIcon,
-} from "lucide-react"
+import { Crosshair, ScanSearch, Settings, type LucideIcon } from "lucide-react"
 
-export type NavId = "scan" | "sessions" | "analysis" | "settings"
+export type NavId = "scan" | "analysis" | "settings"
 
 export type NavItem = {
   id: NavId
@@ -25,12 +19,6 @@ export const NAV_ITEMS: NavItem[] = [
     label: "Scan",
     icon: Crosshair,
     blurb: "Press F2 in-game to capture your inventory and rank items by ₽/slot.",
-  },
-  {
-    id: "sessions",
-    label: "Sessions",
-    icon: History,
-    blurb: "Replay and review saved scans.",
   },
   {
     id: "analysis",

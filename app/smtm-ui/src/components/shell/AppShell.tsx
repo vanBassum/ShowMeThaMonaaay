@@ -3,7 +3,7 @@ import { ScanSearch } from "lucide-react"
 
 import { AnalysisPanel } from "@/components/analysis/AnalysisPanel"
 import { ScanPanel } from "@/components/scan/ScanPanel"
-import { SessionsPanel } from "@/components/sessions/SessionsPanel"
+import { SessionsModal } from "@/components/sessions/SessionsModal"
 import { useServerState } from "@/lib/server-state"
 import { cn, formatSessionTs } from "@/lib/utils"
 import { LeftRail } from "./LeftRail"
@@ -47,12 +47,14 @@ function HeaderTitle({
 
 export function AppShell() {
   const [active, setActive] = useState<NavId>("scan")
+  const [sessionsOpen, setSessionsOpen] = useState(false)
   const item = NAV_ITEMS.find((i) => i.id === active) ?? NAV_ITEMS[0]
   const Icon = item.icon
+  const openSessions = () => setSessionsOpen(true)
 
   return (
     <div className="flex h-svh overflow-hidden bg-background text-foreground">
-      <LeftRail active={active} onSelect={setActive} />
+      <LeftRail active={active} onSelect={setActive} onOpenSessions={openSessions} />
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
@@ -70,10 +72,8 @@ export function AppShell() {
         <main className="min-h-0 flex-1 overflow-hidden p-4">
           {active === "scan" ? (
             <ScanPanel />
-          ) : active === "sessions" ? (
-            <SessionsPanel />
           ) : active === "analysis" ? (
-            <AnalysisPanel onNavigate={setActive} />
+            <AnalysisPanel onOpenSessions={openSessions} />
           ) : (
             <div className="flex h-full items-center justify-center rounded-lg border border-dashed text-center">
               <div className="max-w-sm px-6">
@@ -84,6 +84,8 @@ export function AppShell() {
           )}
         </main>
       </div>
+
+      <SessionsModal open={sessionsOpen} onOpenChange={setSessionsOpen} />
     </div>
   )
 }
