@@ -2,6 +2,31 @@
 
 Living checklist of deferred work. Newest context in LOGBOOK.md.
 
+## Plans to execute — see the linked specs
+
+The big pieces each have a full spec in `docs/`; the granular checklists below feed them.
+
+- [ ] **Packaging & distribution** — [PACKAGING.md](PACKAGING.md): promote
+      `icon_item_map.json` out of gitignored `data/` *(blocker)*, emit `icon_hashes.json`
+      from `build_dataset.py`, extend `pack_model.py` (ship `MODEL_CARD.md`, add `parent` +
+      `reports_cutoff`), CI release workflow, first-run downloader, drift check, root
+      `models-index.json`.
+- [ ] **Read-only app + report → repackage loop** — [REPORTING.md](REPORTING.md):
+      Part 1 (`reports/` sink + `POST /api/report` + read-only link map + diagnose UI),
+      Part 2 (`tools/apply_reports.py` → baseline links → new package), report transport
+      (local → server), `reports_cutoff` provenance.
+- [ ] **Clean app ⊥ training split** — [STRUCTURE.md](STRUCTURE.md): decouple
+      `app/scan.py` + `app/server.py` from `shared/` & `tools/` (read package/AppData only),
+      rename `shared/ → training/`, move captures, update tool paths, smoke-test.
+- [ ] **Model lineage / root index** — [MODELS.md](MODELS.md): make it the human root
+      card + generate a machine-readable `models-index.json` for the app's model picker.
+- [ ] **Identity resolution alignment** — move `scan._resolve` off visual-matcher
+      margin/score certainty onto the curated-link + ambiguous-dup-group model (see
+      STRUCTURE.md "Linking model"; no separate doc yet).
+- [ ] **Branch reconciliation** — design docs live on `yolo-without-detector`;
+      implementation (analysis page, `backend/`, AppData) on
+      `feat/sessions-analysis-and-appdata-runtime`. Merge the two lines.
+
 ## Training-data augmentations (build_dataset.py) — cumulative, all kept in git
 - [x] Overlays: name text / stack count / FiR / marked (full_v2).
 - [x] **90° rotation** (P=0.5, swap footprint) — rotated items were invisible

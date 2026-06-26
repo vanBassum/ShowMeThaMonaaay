@@ -50,6 +50,52 @@ Old dead-pipeline files (`cls.py`, `cls_model.py`, `train_cls.py`, `retrieval.py
 classifier-autolabel OCR, superseded by `app/ocr_identify.py`) stay deleted — in
 git history if ever needed.
 
+## Planned: clean app ⊥ training split (not yet executed)
+
+**Why.** The app is now **standalone** — it downloads its model + curated links as a
+package from a GitHub release and reads them from AppData
+(`%LOCALAPPDATA%\ShowMeThaMonaaay\`). So nothing the app needs at runtime is "shared"
+with training anymore — `shared/` is a misnomer. We split cleanly into two domains:
+**`app/` = the product**, everything else = **training/dev**. (A training UI, if ever
+needed, is just more `tools/`.)
+
+**Target layout:**
+
+```
+app/            # PRODUCT — standalone; reads only AppData + the fetched package
+training/       # everything training/dev (was "shared/", honestly named)
+  models/       # best.pt + archive (model cards, lineage)        [was shared/models]
+  links/        # icon_overrides + links.jsonl + icon_dups        [was shared/links] — curated baseline pack_model ships
+  templates/    # screen1 (background + grids)                    [was shared/templates]
+  overlays/     # name/count/FiR/marked                           [was shared/assets/overlays]
+  captures/     # game-captured real crops                        [was gallery/, parked in shared/captures]
+  icons/        # EFT icon-cache snapshot (~68 MB) — the synthetic-data input  [decision: track vs external]
+tools/          # training scripts (build_dataset, train, fetch_items, pack_model…)
+experiments/ · docs/
+```
+
+**The real work is code decoupling, not just `mv`.** Today the app still reaches into the
+training side, so a bare rename would break it:
+
+- `app/scan.py` still reads `shared/models/best.pt`, `shared/links/*`, `data/items.json`,
+  `data/icon_item_map.json` → must read from the **downloaded package + AppData** (via
+  `app/backend/paths.py`).
+- `app/server.py` still `import`s `tools/fetch_items` for the price refresh → fold that
+  fetch **into `app/backend/`** so the app has **no `tools/` import**.
+
+Only after that decoupling is the directory reorg safe; then update `tools/` path refs
+(`pack_model.py`, `build_dataset.py`, `icon_dups.py`, `predict.py`) `shared/ → training/`
+and smoke-test every entry point (as in the 2026-06-25 restructure).
+
+**Open decisions (confirm before executing):**
+
+- **`tools/` placement** — top-level (recommended, less churn) vs. nested under `training/`.
+- **Icon-cache snapshot (68 MB)** — track in `training/icons/` (in-repo, durable) vs. keep
+  external (the Kaggle inputs dataset already bundles it via `pack_for_kaggle.py`). Lean: track once.
+- **Branch** — do this on `feat/sessions-analysis-and-appdata-runtime` (the standalone code);
+  first merge the design docs over from `yolo-without-detector`. The two lines are not yet
+  reconciled.
+
 ## Database: JSON / JSONL (not SQLite, for now)
 
 Data is small (5k items, ~3.7k icons, a few hundred links) and read-mostly. The
