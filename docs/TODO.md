@@ -41,6 +41,14 @@ specs in `docs/`; the granular lists below feed them.
       path and the legacy `app/frontend` HTML; `scan.py` reads the link map from the package.
 - [x] **barry v3** trained + archived (rotation + colored-bg augs); active model.
 
+## Detector recall — undetected items (investigate)
+
+- [ ] **Investigate items YOLO doesn't detect.** A list of known recall failures exists
+      (captured by the user; file TBD — drop it under `experiments/` or `docs/`). Work out
+      *why* each is missed (size/footprint, rotation, dark/colored bg, rare icon, overlay
+      occlusion?) and whether it's an augmentation gap or a training-data gap → feed back
+      into `build_dataset.py` augs / more samples.
+
 ## Training-data augmentations (build_dataset.py) — cumulative, kept in git
 
 - [x] Overlays: name text / stack count / FiR / marked.
