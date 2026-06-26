@@ -88,7 +88,8 @@ function Box({
 }
 
 /** After fixing one box, ask whether the other boxes with the SAME detected icon-id are
- *  the same item — so a user can fix all duplicates in one click. */
+ *  the same item. Each match is shown as a toggleable crop (all selected by default) so a
+ *  user can deselect a wrong one before applying the fix to the rest. */
 function PropagateDialog({
   ts,
   name,
@@ -99,16 +100,28 @@ function PropagateDialog({
   ts: string
   name: string
   boxes: ScanItem[]
-  onApply: () => void
+  onApply: (chosen: ScanItem[]) => void
   onSkip: () => void
 }) {
+  const [selected, setSelected] = useState<Set<number>>(
+    () => new Set(boxes.map((_, i) => i))
+  )
+  const toggle = (i: number) =>
+    setSelected((s) => {
+      const next = new Set(s)
+      if (next.has(i)) next.delete(i)
+      else next.add(i)
+      return next
+    })
+  const chosen = boxes.filter((_, i) => selected.has(i))
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
       onClick={onSkip}
     >
       <div
-        className="w-full max-w-md rounded-lg border bg-card p-4 shadow-xl"
+        className="flex max-h-[80vh] w-full max-w-md flex-col rounded-lg border bg-card p-4 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 text-sm font-medium">
@@ -117,34 +130,64 @@ function PropagateDialog({
           id
         </div>
         <p className="mt-1 text-xs text-muted-foreground">
-          They're highlighted orange. Are they also{" "}
-          <span className="font-medium text-foreground">{name}</span>?
+          They're highlighted orange. Click any that are{" "}
+          <span className="font-medium">not</span>{" "}
+          <span className="font-medium text-foreground">{name}</span> to deselect them.
         </p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {boxes.map((it, i) => (
-            <img
-              key={i}
-              src={`/api/crop/${ts}?box=${it.box.join(",")}`}
-              alt=""
-              className="size-12 rounded border bg-muted object-contain"
-            />
-          ))}
+        <div className="mt-3 flex flex-wrap gap-2 overflow-y-auto">
+          {boxes.map((it, i) => {
+            const on = selected.has(i)
+            return (
+              <button
+                key={i}
+                type="button"
+                onClick={() => toggle(i)}
+                title={on ? "Selected — click to skip" : "Skipped — click to include"}
+                className={cn(
+                  "relative rounded border-2 bg-muted transition-all",
+                  on
+                    ? "border-amber-500"
+                    : "border-transparent opacity-40 grayscale hover:opacity-70"
+                )}
+              >
+                <img
+                  src={`/api/crop/${ts}?box=${it.box.join(",")}`}
+                  alt=""
+                  className="size-12 rounded-sm object-contain"
+                />
+                {on && (
+                  <span className="absolute -top-1.5 -right-1.5 rounded-full bg-amber-500 p-0.5 text-black">
+                    <Check className="size-3" />
+                  </span>
+                )}
+              </button>
+            )
+          })}
         </div>
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onSkip}
-            className="rounded-md border px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent"
-          >
-            Just this one
-          </button>
-          <button
-            type="button"
-            onClick={onApply}
-            className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-600 hover:bg-amber-500/20 dark:text-amber-400"
-          >
-            Mark all {boxes.length} as {name}
-          </button>
+        <div className="mt-4 flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">{chosen.length} selected</span>
+          <div className="ml-auto flex gap-2">
+            <button
+              type="button"
+              onClick={onSkip}
+              className="rounded-md border px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent"
+            >
+              Just this one
+            </button>
+            <button
+              type="button"
+              onClick={() => onApply(chosen)}
+              disabled={!chosen.length}
+              className={cn(
+                "rounded-md border px-3 py-1.5 text-xs font-medium transition-colors",
+                chosen.length
+                  ? "border-amber-500/50 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400"
+                  : "text-muted-foreground"
+              )}
+            >
+              Mark {chosen.length} as {name}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -243,11 +286,11 @@ export function AnalysisPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
     setEditing(null)
   }
 
-  const applyPropagation = () => {
+  const applyPropagation = (chosen: ScanItem[]) => {
     if (!propagate) return
     setFlags((f) => {
       const next = { ...f }
-      for (const b of propagate.boxes) {
+      for (const b of chosen) {
         next[boxKey(b.box)] = {
           box: b.box,
           icon_id: b.icon_id,
@@ -393,7 +436,7 @@ export function AnalysisPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
           ts={ts}
           name={propagate.corrected.name}
           boxes={propagate.boxes}
-          onApply={applyPropagation}
+          onApply={(chosen) => applyPropagation(chosen)}
           onSkip={() => setPropagate(null)}
         />
       )}
