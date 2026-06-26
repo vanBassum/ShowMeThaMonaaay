@@ -119,3 +119,49 @@ The batch bundle is richest if it includes the **whole annotated screenshot** (f
 neighboring items) — but that reveals the user's entire stash. The alternative is shipping
 **only the flagged crops** (private, less context). Leaning: whole-shot with an explicit
 opt-in toggle; default to crops-only if the user prefers. **Not yet decided.**
+
+## Feature to build: the dogfood loop (single-user first)
+
+**Status: to build.** Bootstrap the whole loop on the dev's own machine before any
+server exists — the dev is both the first *user* and the *curator*. Adjustments/reports
+land in a local "would-be-pushed" sink; a separate tool later folds confirmed fixes back
+into the shipped package. No server, no network — validates the data shape and the loop end
+to end first.
+
+### Part 1 — local report sink (do first)
+
+- [ ] **`reports/` staging dir** (gitignored) — the "place that would otherwise get pushed."
+      One record per report: `crop.png`, `icon_id` + `det_conf`, what was **shown**
+      (item + source + certainty), the **correct answer** (curator's adjustment —
+      authoritative *for the curator*), the **type** (`wrong_item` / `not_an_item` /
+      `missed`), and the **model name + version + `icons_fingerprint`** (which package it
+      applies to). Schema = the report payload above, minus the network envelope.
+- [ ] **`POST /api/report`** writes to `reports/` and **does not** mutate `links.jsonl` —
+      runtime link map stays read-only (loads the shipped baseline only). "Diagnose mode",
+      not "playing mode".
+- [ ] **Diagnose UI** (evolve `inspect.html`): click box → wrong / not-an-item
+      (+ optional correct-item search), draw/"fat pen" → missed. Each gesture POSTs a report.
+- [ ] **Make the app read-only:** remove/disable `/api/override` + `add_manual_link()` and
+      the runtime append to `links.jsonl`; reuse the existing crop-capture from
+      `save_correction`/`save_missed`, redirected to `reports/`.
+
+### Part 2 — assessor → new package (do after some reports exist)
+
+- [ ] **`tools/apply_reports.py`** — walk `reports/`, show each (crop + shown-vs-answer),
+      curator confirms/skips. Confirmed **link** fixes append to baseline
+      `shared/links/links.jsonl` as `manual` events; **detector**-type reports route to
+      training crops (`gallery/`).
+- [ ] Then **`tools/pack_model.py`** cuts a **new package version** with the corrected
+      baseline links — loop closed, no retrain needed for link-only fixes (see
+      `docs/PACKAGING.md`, links-update return path).
+
+### Decisions (recommended defaults — confirm at build time)
+
+- **Adjustment behavior:** *stage the report only* (recommended — keeps runtime read-only,
+  no live re-valuation) vs. also update the live view. Default: stage-only.
+- **Sink location:** new **`reports/`** dir (recommended — clearly the push-queue, distinct
+  from `gallery/` training crops) vs. reuse `gallery/corrections.jsonl`. Default: `reports/`.
+
+This reuses what already exists (crop capture, the `manual` link-event format,
+`pack_model.py`); the only new pieces are the `reports/` sink, `/api/report`, and the
+`apply_reports.py` assessor.

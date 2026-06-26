@@ -52,6 +52,14 @@ Living checklist of deferred work. Newest context in LOGBOOK.md.
       writes a `manual` link event). Links still come from non-OCR sources
       (keep YOLO ⊥ OCR independent).
 
+## Report → repackage loop (dogfood, single-user first)  → see docs/REPORTING.md
+- [ ] **Part 1:** `reports/` sink + `POST /api/report` + make link map read-only
+      (drop runtime `/api/override` / `links.jsonl` append); diagnose UI posts reports.
+- [ ] **Part 2:** `tools/apply_reports.py` assessor → confirmed link fixes into baseline
+      `shared/links/links.jsonl` → `pack_model.py` cuts a new package version.
+- Direction: app is read-only for users; the dev (curator) reports adjustments locally,
+  a tool folds confirmed fixes back into the shipped package. Full spec in REPORTING.md.
+
 ## UI bugs / polish (from idea.txt)
 - [ ] **Price not re-valued after a manual correction?** Verify `/api/override`
       re-projects and the new ₽/slot shows in the UI (it should call `project()`).
