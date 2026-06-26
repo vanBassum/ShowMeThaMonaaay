@@ -67,13 +67,15 @@ def get_model():
 
 
 def set_active_model(name):
-    """Switch the active detector model: fetch it (UI shows progress) and drop the
-    loaded model so the next scan reloads with the new weights."""
+    """Switch the active detector model: fetch it (UI shows progress), drop the loaded
+    model so the next scan reloads with the new weights, and point the identity sources
+    (icon->item link map etc.) at the new model's package."""
     global _active_model, _model
     if name not in models.MODELS:
         return False
     _active_model = name
     _model = None
+    scanmod.use_model(name)            # link map / overrides come from this model's package
     threading.Thread(target=ensure_model_bg, args=(name,), daemon=True).start()
     return True
 

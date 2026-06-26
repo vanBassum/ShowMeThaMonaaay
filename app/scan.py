@@ -19,19 +19,35 @@ from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # for sibling imports
 from ocr_identify import ocr_words, match_name  # noqa: E402
-from backend import paths  # noqa: E402  (per-user writable dirs: see backend/paths.py)
+from backend import paths, models  # noqa: E402  (data dirs + model packages)
 
 DEFAULT_MODEL = "shared/models/best.pt"   # barry v3 (active)
 
-# Identity sources. YOLO's icon-id -> item comes from the NON-OCR link map (visual
-# matcher + manual overrides); it's PREFERRED over OCR (more reliable in practice).
+# The icon-id -> item link map (visual matcher), manual overrides, and the baseline
+# correction log all ship INSIDE the active model's package (the icon-id set is
+# model-specific). This is what lets YOLO NAME an item, not just locate it — it's
+# PREFERRED over OCR when its match is confident. Catalog/prices (items.json) are
+# model-independent and stay in data/.
 ITEMS_PATH = "data/items.json"
-ICON_MAP_PATH = "data/icon_item_map.json"            # icon-id -> {item_id, score, margin} (visual matcher)
-OVERRIDES_PATH = "shared/links/icon_overrides.json"  # legacy flat manual map (icon-id -> item_id)
-# Manual corrections are EVENT-sourced. The shipped log is a read-only baseline (in the
-# repo / model package); the user's own corrections are written to (and read from) a
-# per-user writable log in the data dir — so runtime writes never dirty the repo.
-BASELINE_LINKS_LOG = "shared/links/links.jsonl"      # shipped baseline (read-only)
+_MODEL = models.DEFAULT
+
+
+def use_model(name):
+    """Point the identity sources at model `name`'s package and drop the cached link
+    projection. Call this when the active detector model changes."""
+    global _MODEL, _LINK
+    if name and name != _MODEL:
+        _MODEL = name
+        _LINK = None
+
+
+def _links_dir():
+    return models.links_dir(_MODEL)
+
+
+# Manual corrections are EVENT-sourced. The package ships a read-only baseline log; the
+# user's own corrections are written to (and read from) a per-user writable log in the
+# data dir — so runtime writes never touch the package.
 def user_links_log():                                # per-user writable correction log
     return str(paths.links_dir() / "links.jsonl")
 _LINK = _CAT = None
@@ -76,9 +92,9 @@ def _events_from(p):
 
 
 def _events():
-    """Manual-correction events: shipped baseline first, then the user's own log, so
-    the user's later corrections win when both touch the same icon."""
-    return _events_from(BASELINE_LINKS_LOG) + _events_from(user_links_log())
+    """Manual-correction events: the package's baseline log first, then the user's own
+    log, so the user's later corrections win when both touch the same icon."""
+    return _events_from(str(_links_dir() / "links.jsonl")) + _events_from(user_links_log())
 
 
 def _link_map():
@@ -87,11 +103,12 @@ def _link_map():
     The event log is append-only; the LATEST manual event per icon takes effect."""
     global _LINK
     if _LINK is None:
-        auto = _jload(ICON_MAP_PATH, {})
+        links = _links_dir()
+        auto = _jload(str(links / "icon_item_map.json"), {})      # visual matcher (package)
         _LINK = {k: {"item_id": v.get("item_id"), "score": v.get("score"),
                      "margin": v.get("margin")}
                  for k, v in auto.items() if v.get("item_id")}
-        for k, iid in _jload(OVERRIDES_PATH, {}).items():         # legacy flat manual
+        for k, iid in _jload(str(links / "icon_overrides.json"), {}).items():  # flat manual
             _LINK[k] = {"item_id": iid, "score": None, "margin": None, "override": True}
         for ev in _events():                                      # event-sourced manual
             if ev.get("source") == "manual" and ev.get("item_id"):

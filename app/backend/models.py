@@ -46,6 +46,19 @@ def is_present(name: str = DEFAULT) -> bool:
     return dest.exists() and _weights_in(dest) is not None
 
 
+def links_dir(name: str = DEFAULT) -> Path:
+    """The link database shipped INSIDE model `name`'s package: icon_item_map.json
+    (visual matcher icon-id -> item), icon_overrides.json, links.jsonl. The icon-id set
+    is model-specific, so these live with the model — that's what makes YOLO able to
+    name an item, not just locate it."""
+    dest = paths.models_dir() / name / "links"
+    if dest.is_dir():
+        return dest
+    # tolerate packages that nest the folder a level deeper
+    found = next(iter(sorted((paths.models_dir() / name).rglob("icon_item_map.json"))), None)
+    return found.parent if found else dest
+
+
 def read_manifest(name: str = DEFAULT) -> dict | None:
     """The downloaded model package's manifest.json (None if absent/unreadable).
     Holds `icons_fingerprint` (the class-set identity), `classes`, version, etc."""

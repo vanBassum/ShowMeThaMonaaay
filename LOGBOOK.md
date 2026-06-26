@@ -6,6 +6,29 @@ packaging, eval on real shots. App/UX/backend-plumbing changes do NOT go here (s
 
 ---
 
+## 2026-06-26 — Bug: link map never loaded → YOLO identity disabled (62→97 identified)
+
+**What.** Found the runtime scan pipeline was reading the icon-id→item link map from a
+repo-relative `data/icon_item_map.json` that doesn't exist — but the map (3446 entries)
+ships INSIDE the model package (`<models_dir>/barry-v3/links/icon_item_map.json`). So
+`_link_map()` was empty and YOLO could only *locate* boxes; OCR did 100% of identification.
+Wired `scan.py` to read the link map / overrides / baseline event log from the active
+model's package via `models.links_dir(name)` (+ `scan.use_model()` on model switch).
+
+**Why.** Symptom: the UI item list showed `ocr` for ~every item. Expected YOLO to identify
+when its icon-match is confident, OCR only as fallback.
+
+**Result (real shot, session `20260626-121924`, 97 detections).** Before: 62/97 identified,
+source = 60 ocr / 2 override / **0 yolo**. After: **97/97 identified**, source = 36 yolo /
+59 ocr / 2 override, 40 boxes where YOLO and OCR agree. Visual-match scores are still high
+(L2 ~24–31; icon domain gap) so OCR still wins many ties, but YOLO now fills the 35 boxes
+OCR missed entirely.
+
+**Next.** Lower visual-match L2 / raise YOLO certainty needs better icon source data (game
+render, not tarkov.dev) — see [[icon-domain-gap]] / [[detector-improvement-plan]].
+
+---
+
 ## 2026-06-26 — Model packaging: combined archive + first artifact uploaded (`yolo-without-detector`)
 
 **What.** Defined how models ship and uploaded the first one. `docs/PACKAGING.md` = the
