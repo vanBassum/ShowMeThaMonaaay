@@ -6,6 +6,35 @@ packaging, eval on real shots. App/UX/backend-plumbing changes do NOT go here (s
 
 ---
 
+## 2026-06-26 — Recall collapse on a downscaled/compressed real shot (8 of ~45 items)
+
+**What.** A user-uploaded inventory image (session `20260626-152517`, 1507×1164) is packed
+with ~40–50 grid items but the detector found only **8** boxes. Re-scanned the saved
+`raw.png` directly to rule out the upload path and sweep resolution:
+
+| input | boxes |
+|---|---|
+| imgsz 1536 (default) | 8 |
+| imgsz 2048 / 2560 / 3072 | 5 / 3 / 5 |
+| 2× upscale, imgsz 1536 | 9 |
+| 2× upscale, imgsz 3072 | 5 |
+
+**Why.** User reported the new image-upload feature "misses so many items." Wanted to know
+if it was a plumbing bug (upload vs scan) or the model.
+
+**Result (didn't work — detector limitation, not a bug).** Re-scan reproduces the stored
+`det=8` exactly → the saved image *is* the scanned image; upload plumbing is correct. More
+pixels make recall *worse*, not better, so it's not under-resolution. The image looks like a
+downscaled/JPEG-compressed share of a screenshot; the synthetic-trained detector is brittle
+to that resampling/compression (vs native-res F2 captures, which hit 97/97 on 2560×1440).
+
+**Next.** This is the [[icon-domain-gap]] / [[detector-improvement-plan]] again, on the
+*detection* side rather than identity. The new "box missed items" tool turns shots like this
+into labeled boxes — harvest them as real-data fine-tuning samples. Consider augmenting
+synthetic training with downscale + JPEG-compression to cover shared/compressed screenshots.
+
+---
+
 ## 2026-06-26 — Bug: link map never loaded → YOLO identity disabled (62→97 identified)
 
 **What.** Found the runtime scan pipeline was reading the icon-id→item link map from a
