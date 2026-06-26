@@ -5,6 +5,34 @@ See `CLAUDE.md` for the format rule.
 
 ---
 
+## 2026-06-26 — Model packaging: combined archive + first artifact uploaded (`yolo-without-detector`)
+
+**What.** Defined how models ship and uploaded the first one. `docs/PACKAGING.md` = the
+spec (three data planes: model-bound / live-catalog / dev-only). The model-bound unit is a
+versioned zip: `best.pt` + curated link map (`icon_item_map.json` + overrides/events) +
+`icons/icon_hashes.json` + `manifest.json` (per-file sha256 + icon-set fingerprint).
+`tools/pack_model.py` assembles it. Built `smtm-model-barry-v3.zip` (7.4 MB, 3672 icons
+hashed, fingerprint `b2a2d2ab…`) and uploaded as a **draft** GitHub release `barry-v3`.
+
+**Why.** Exe (Actions, later) bundles engine+backend+frontend; model + bound data download
+on first run. Keeps the binary small and lets us push models without rebuilding the app.
+
+**Key decisions.** (1) Training-icon PNGs are NOT shipped — only their hashes (model embeds
+icon-ids; display uses tarkov.dev `gridImageLink`). (2) `icon_hashes.json` = sha256 (exact)
++ dhash (perceptual) per icon → detects/relinks icons if Tarkov changes them; also the
+future report-to-server signal. (3) Catalog (prices/icons) fetched at runtime, not bundled.
+(4) Manual user corrections never ship (curated baseline only); kept local, shared back
+opt-in later (pipeline undesigned).
+
+**Result (works).** All 3672 v3 class icons present in cache → clean retrofit. Archive
+verified (manifest + hashes readable). Draft release up; awaiting review before publish.
+
+**Next.** Promote `icon_item_map.json` out of gitignored `data/` (CI blocker — pack_model
+reads it locally for now); emit `icon_hashes.json` from `build_dataset.py` atomic with
+training; Actions release workflow; first-run downloader in the app.
+
+---
+
 ## 2026-06-26 — Repo cleanup: frontend folder, docs/, dead-code removal (`yolo-without-detector`)
 
 **What.** Tidy pass ahead of the exe-packaging direction. (1) HTML moved to
