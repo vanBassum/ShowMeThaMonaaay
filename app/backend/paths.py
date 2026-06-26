@@ -59,5 +59,11 @@ def gallery_dir() -> Path:
     return _sub("gallery")
 
 
+def reports_dir() -> Path:
+    """User-submitted 'this detection was wrong' reports (screenshot + flagged boxes).
+    Queued locally for now; an opt-in upload comes later (see docs/REPORTING.md)."""
+    return _sub("reports")
+
+
 if __name__ == "__main__":
     print(f"data dir: {data_dir()}")

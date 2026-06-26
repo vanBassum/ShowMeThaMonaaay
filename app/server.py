@@ -9,7 +9,7 @@ Notes:
   (exclusive fullscreen can grab black).
 - Model + OCR are loaded once; a scan takes a few seconds (OCR per detected box).
 """
-import os, sys, io, json, time, threading, argparse
+import os, sys, io, json, time, threading, argparse, shutil
 from flask import Flask, jsonify, send_file, request, abort, Response
 from PIL import ImageGrab, Image
 
@@ -34,6 +34,7 @@ CATALOG_ICONS = os.path.join(ROOT, "data", "icons")    # OCR item-id -> <id>.web
 # (Windows: %LOCALAPPDATA%\ShowMeThaMonaaay; override with SMTM_DATA_DIR).
 SESSIONS = str(paths.sessions_dir())                   # saved scans (raw + detections)
 GALLERY = str(paths.gallery_dir())                     # real-crop training data
+REPORTS = str(paths.reports_dir())                     # user "this was wrong" reports
 
 app = Flask(__name__)
 _state = {"status": "idle", "result": None, "ts": None, "error": None,
@@ -277,6 +278,34 @@ def load_session(ts):
 @app.route("/api/load-session/<ts>", methods=["POST"])   # replay a saved session into state
 def load_session_route(ts):
     return jsonify(ok=load_session(ts))
+
+
+@app.route("/api/report", methods=["POST"])     # save a "these detections were wrong" report
+def save_report():
+    """Persist a user report locally (NOT sent anywhere yet — see docs/REPORTING.md):
+    a bundle of flagged boxes ('this box should be item X') plus the whole screenshot,
+    so we can triage offline later. The app stays read-only — this never edits the link
+    map; that's a separate, deliberate action."""
+    d = request.get_json(force=True) or {}
+    ts, flags = d.get("session_ts"), d.get("flags") or []
+    if not ts or not flags:
+        abort(400)
+    rid = time.strftime("%Y%m%d-%H%M%S")
+    rdir = os.path.join(REPORTS, rid)
+    os.makedirs(rdir, exist_ok=True)
+    raw = os.path.join(SESSIONS, ts, "raw.png")
+    has_shot = os.path.exists(raw)
+    if has_shot:
+        shutil.copy(raw, os.path.join(rdir, "raw.png"))   # whole screenshot, self-contained
+    bundle = {"report_id": rid, "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+              "session_ts": ts, "screenshot": "raw.png" if has_shot else None,
+              "model": {"name": _active_model,
+                        "icons_fingerprint": models.fingerprint(_active_model)},
+              "flags": flags}
+    json.dump(bundle, open(os.path.join(rdir, "report.json"), "w", encoding="utf-8"),
+              ensure_ascii=False, indent=2)
+    print(f"report saved: {rid} ({len(flags)} flag(s)) -> {rdir}")
+    return jsonify(ok=True, report_id=rid)
 
 
 @app.route("/api/stream")           # Server-Sent Events: push state on every change
