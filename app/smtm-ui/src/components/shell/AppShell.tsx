@@ -71,7 +71,7 @@ export function AppShell() {
           {active === "scan" ? (
             <ScanPanel />
           ) : active === "sessions" ? (
-            <SessionsPanel onNavigate={setActive} />
+            <SessionsPanel />
           ) : active === "analysis" ? (
             <AnalysisPanel onNavigate={setActive} />
           ) : (

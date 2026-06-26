@@ -3,7 +3,6 @@ import { History, RotateCw, Wrench } from "lucide-react"
 
 import { cn, formatSessionTs } from "@/lib/utils"
 import { useServerState } from "@/lib/server-state"
-import type { NavId } from "@/components/shell/nav"
 
 /** One saved scan as the grid shows it (see /api/sessions). */
 type SessionCard = {
@@ -16,7 +15,7 @@ type SessionCard = {
 
 const RUB = (n: number) => n.toLocaleString("en-US")
 
-export function SessionsPanel({ onNavigate }: { onNavigate: (id: NavId) => void }) {
+export function SessionsPanel() {
   const { state } = useServerState()
   const [sessions, setSessions] = useState<SessionCard[]>([])
   const [loading, setLoading] = useState(true)
@@ -40,8 +39,9 @@ export function SessionsPanel({ onNavigate }: { onNavigate: (id: NavId) => void 
 
   const load = async (ts: string) => {
     try {
+      // Load the session into state and stay here — the top-bar chip (and the Analysis
+      // tab) are how you then open it. The clicked card shows a "loaded" badge.
       await fetch(`/api/load-session/${ts}`, { method: "POST" })
-      onNavigate("analysis") // jump to Analysis: screenshot + detection boxes
     } catch {
       /* backend offline */
     }
