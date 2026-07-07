@@ -156,7 +156,7 @@ def trigger():
 # skips it. Everything above is ranked *within this scan* into three equal tiers.
 OVERLAY_JUNK = 15000                          # < 15k ₽ -> gray (ignore)
 _TIERS = ("#ff3b3b", "#ffd21f", "#2ecc40")    # cheapest third / middle / top third
-_JUNK = "#777777"
+_JUNK = "#ff3b3b"        # gray was hard to read on the game -> red (same as ditch)
 _overlay = None          # lazily created on first F3 (owns a tkinter thread)
 
 
@@ -536,9 +536,18 @@ if __name__ == "__main__":
         import keyboard
         keyboard.add_hotkey("f2", trigger)
         keyboard.add_hotkey("f3", trigger_overlay)   # scan + draw keep/ditch overlay on screen
-        keyboard.add_hotkey("tab", hide_overlay)      # dismiss overlay (non-suppressing: Tab still works in-game)
-        print("F2 = scan.  F3 = overlay.  Tab = hide overlay.")
+        for k in ("tab", "esc"):                      # dismiss overlay (non-suppressing: keys still work in-game)
+            keyboard.add_hotkey(k, hide_overlay)
+        print("F2 = scan.  F3 = overlay.  Tab/Esc = hide overlay.")
     except Exception as e:
         print(f"(hotkeys unavailable: {e} — use the Scan button in the UI)")
+    # Scrolling the stash shifts the items under the overlay, so its boxes go stale ->
+    # a scroll dismisses it too. `mouse` is a separate lib from `keyboard`; optional.
+    try:
+        import mouse
+        mouse.hook(lambda e: hide_overlay() if isinstance(e, mouse.WheelEvent) else None)
+        print("Scroll = hide overlay.")
+    except Exception as e:
+        print(f"(scroll-to-hide unavailable: {e} — pip install mouse)")
     print(f"UI: http://127.0.0.1:{PORT}")
     app.run(port=PORT, threaded=True)

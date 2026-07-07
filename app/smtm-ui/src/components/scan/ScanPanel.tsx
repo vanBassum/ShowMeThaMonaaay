@@ -11,6 +11,25 @@ import { useServerState, type ScanItem, type ScanResult } from "@/lib/server-sta
 
 const RUB = (n: number) => n.toLocaleString("en-US")
 
+// Value tiers mirror the F3 game overlay (server.py `_overlay_boxes`): below the junk
+// floor, or the cheapest third of what's above it, is red; middle third yellow; top
+// third green — ranked within the current scan so the colours track the actual loot.
+const JUNK_FLOOR = 15000
+const TIER_COLOR = { red: "#ff3b3b", yellow: "#ffd21f", green: "#2ecc40" } as const
+type Tier = keyof typeof TIER_COLOR
+
+function makeValueTier(values: number[]): (v: number) => Tier {
+  const real = values.filter((v) => v >= JUNK_FLOOR).sort((a, b) => a - b)
+  const n = real.length
+  return (v) => {
+    if (v < JUNK_FLOOR) return "red"
+    if (n <= 1) return "green"
+    const rank = real.filter((x) => x < v).length // # of items strictly cheaper
+    const t = rank / (n - 1)
+    return t < 1 / 3 ? "red" : t < 2 / 3 ? "yellow" : "green"
+  }
+}
+
 const sourceStyle: Record<string, string> = {
   yolo: "bg-sky-500/15 text-sky-600 dark:text-sky-400",
   ocr: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
@@ -98,10 +117,12 @@ function dedupe(items: ScanItem[]): AggItem[] {
 function ItemRow({
   item,
   ts,
+  color,
   onEdit,
 }: {
   item: AggItem
   ts: string | null
+  color: string
   onEdit: (item: AggItem) => void
 }) {
   const slots = item.slots ?? 1
@@ -115,6 +136,11 @@ function ItemRow({
         title="Fix what this should be"
         className="flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left transition-colors hover:border-amber-500/50 hover:bg-accent"
       >
+        <span
+          aria-hidden
+          className="h-9 w-1 shrink-0 rounded-full"
+          style={{ backgroundColor: color }}
+        />
         {cropUrl && (
           <img
             src={cropUrl}
@@ -167,16 +193,24 @@ function ItemRow({
 function ItemList({
   items,
   ts,
+  tierOf,
   onEdit,
 }: {
   items: AggItem[]
   ts: string | null
+  tierOf: (v: number) => Tier
   onEdit: (item: AggItem) => void
 }) {
   return (
     <ul className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pr-1">
       {items.map((item, i) => (
-        <ItemRow key={`${item.icon_id}-${i}`} item={item} ts={ts} onEdit={onEdit} />
+        <ItemRow
+          key={`${item.icon_id}-${i}`}
+          item={item}
+          ts={ts}
+          color={TIER_COLOR[tierOf(item.value ?? 0)]}
+          onEdit={onEdit}
+        />
       ))}
     </ul>
   )
@@ -208,6 +242,9 @@ export function ScanPanel() {
   // non-overlapping halves: KEEP = higher-value half, DITCH = lower-value (lowest first).
   const resolved = result ? resolveWithFixes(result, flags) : []
   const total = resolved.reduce((s, it) => s + (it.value ?? 0), 0)
+  // Tier colours are ranked over the individual item values (matches the overlay, which
+  // ranks per detection) even though the rows below are deduped.
+  const tierOf = makeValueTier(resolved.map((it) => it.value ?? 0))
   const ranked = dedupe(resolved)
   const half = Math.ceil(ranked.length / 2)
   // The search filters each column in place, so a match keeps its keep/ditch side.
@@ -303,9 +340,9 @@ export function ScanPanel() {
 
       {result ? (
         <div className="flex min-h-0 flex-1 gap-4">
-          <ItemList items={keep} ts={ts} onEdit={setEditing} />
+          <ItemList items={keep} ts={ts} tierOf={tierOf} onEdit={setEditing} />
           <div className="w-px shrink-0 bg-border" />
-          <ItemList items={ditch} ts={ts} onEdit={setEditing} />
+          <ItemList items={ditch} ts={ts} tierOf={tierOf} onEdit={setEditing} />
         </div>
       ) : (
         <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed text-center">

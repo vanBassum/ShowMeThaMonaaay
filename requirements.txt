@@ -4,6 +4,7 @@ imagehash
 numpy
 opencv-python
 keyboard
+mouse
 winsdk
 ultralytics
 torch
