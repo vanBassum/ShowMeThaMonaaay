@@ -99,7 +99,7 @@ def ensure_model_bg(name=None):
 def _scan_image(img):
     """Save an image as a new session, run the detector over it, and push the result to
     the UI — the shared core of an F2 capture and a manual image upload. Assumes the scan
-    lock is held. Returns the new session id."""
+    lock is held. Returns (session id, result dict)."""
     ts = time.strftime("%Y%m%d-%H%M%S")
     sess = os.path.join(SESSIONS, ts)
     os.makedirs(sess, exist_ok=True)
@@ -111,7 +111,14 @@ def _scan_image(img):
     # annotated copy for later review/tooling (green=identified, red=unidentified)
     scanmod.annotate(img, res).save(os.path.join(sess, "scan.png"))
     _set(status="done", result=res, ts=ts)
-    return ts
+    return ts, res
+
+
+def _clear_overlay_for_capture():
+    """Hide the overlay and wait until it's really gone before a screenshot, so an F2/F3
+    grab never includes the previous scan's boxes. No-op if it was never opened."""
+    if _overlay is not None:
+        _overlay.hide(wait=True)
 
 
 def do_scan():
@@ -119,6 +126,7 @@ def do_scan():
         return  # a scan is already running -> ignore (no duplicate screenshot)
     try:
         _set(status="capturing", error=None)
+        _clear_overlay_for_capture()
         _scan_image(ImageGrab.grab().convert("RGB"))
     except Exception as e:
         _set(status="error", error=str(e))
@@ -141,6 +149,79 @@ def do_scan_image(img):
 
 def trigger():
     threading.Thread(target=do_scan, daemon=True).start()
+
+
+# --- F3 game overlay: draw keep/ditch boxes straight onto the screen -----------------
+# Junk floor: below this (mags, loose ammo, cheap parts) an item grays out so the eye
+# skips it. Everything above is ranked *within this scan* into three equal tiers.
+OVERLAY_JUNK = 15000                          # < 15k ₽ -> gray (ignore)
+_TIERS = ("#ff3b3b", "#ffd21f", "#2ecc40")    # cheapest third / middle / top third
+_JUNK = "#777777"
+_overlay = None          # lazily created on first F3 (owns a tkinter thread)
+
+
+def _fmt_price(v):
+    """Compact ₽ for the overlay label: 5234 -> '5k', 1_250_000 -> '1.2M'."""
+    if v >= 1_000_000:
+        return f"{v / 1_000_000:.1f}M"
+    if v >= 1000:
+        return f"{round(v / 1000)}k"
+    return str(int(v))
+
+
+def _overlay_boxes(res):
+    """(x0,y0,x1,y1,color,label) per detection. Below OVERLAY_JUNK ₽ a box grays out
+    (mags/ammo/junk — ignore); the rest are ranked *within this scan* into three equal
+    tiers — red (cheapest third) / yellow / green (grab first). Relative ranking keeps
+    the spread sensible whatever the loot; the fixed floor keeps trash from competing.
+    label = the value; unidentified draw faint gray, no label, so you still see them."""
+    items = res.get("items", [])
+    # rank the above-floor items by value, then split into equal thirds
+    real = sorted((it for it in items if it["value"] >= OVERLAY_JUNK),
+                  key=lambda it: it["value"])
+    n = len(real)
+    tier = {}
+    for i, it in enumerate(real):
+        t = i / (n - 1) if n > 1 else 1.0             # 0 = cheapest, 1 = priciest
+        tier[id(it)] = _TIERS[0] if t < 1 / 3 else _TIERS[1] if t < 2 / 3 else _TIERS[2]
+    boxes = []
+    for it in items:
+        color = _JUNK if it["value"] < OVERLAY_JUNK else tier[id(it)]
+        boxes.append((*it["box"], color, _fmt_price(it["value"])))
+    for it in res.get("unidentified", []):
+        boxes.append((*it["box"], "#666666", ""))
+    return boxes
+
+
+def _get_overlay():
+    global _overlay
+    if _overlay is None:
+        import overlay as overlaymod
+        _overlay = overlaymod.ScreenOverlay()
+    return _overlay
+
+
+def do_overlay():
+    if not _lock.acquire(blocking=False):
+        return  # a scan/overlay is already running
+    try:
+        _set(status="capturing", error=None)
+        _clear_overlay_for_capture()
+        _, res = _scan_image(ImageGrab.grab().convert("RGB"))
+        _get_overlay().show(_overlay_boxes(res))
+    except Exception as e:
+        _set(status="error", error=str(e))
+    finally:
+        _lock.release()
+
+
+def trigger_overlay():
+    threading.Thread(target=do_overlay, daemon=True).start()
+
+
+def hide_overlay():
+    if _overlay is not None:
+        _overlay.hide()
 
 
 def refresh_prices(force=False):
@@ -454,8 +535,10 @@ if __name__ == "__main__":
     try:
         import keyboard
         keyboard.add_hotkey("f2", trigger)
-        print("F2 = scan.")
+        keyboard.add_hotkey("f3", trigger_overlay)   # scan + draw keep/ditch overlay on screen
+        keyboard.add_hotkey("tab", hide_overlay)      # dismiss overlay (non-suppressing: Tab still works in-game)
+        print("F2 = scan.  F3 = overlay.  Tab = hide overlay.")
     except Exception as e:
-        print(f"(F2 hotkey unavailable: {e} — use the Scan button in the UI)")
+        print(f"(hotkeys unavailable: {e} — use the Scan button in the UI)")
     print(f"UI: http://127.0.0.1:{PORT}")
     app.run(port=PORT, threaded=True)
