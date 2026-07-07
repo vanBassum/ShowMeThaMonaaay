@@ -29,6 +29,9 @@ export type ScanItem = {
   value?: number
   slots?: number
   per_slot?: number
+  /** Value-tier colour (hex) stamped by the backend's scan.project(); the overlay and
+   *  this list both read it, so the palette has a single source of truth. */
+  color?: string
 }
 
 export type ScanResult = {

@@ -152,11 +152,6 @@ def trigger():
 
 
 # --- F3 game overlay: draw keep/ditch boxes straight onto the screen -----------------
-# Junk floor: below this (mags, loose ammo, cheap parts) an item grays out so the eye
-# skips it. Everything above is ranked *within this scan* into three equal tiers.
-OVERLAY_JUNK = 15000                          # < 15k ₽ -> gray (ignore)
-_TIERS = ("#ff3b3b", "#ffd21f", "#2ecc40")    # cheapest third / middle / top third
-_JUNK = "#ff3b3b"        # gray was hard to read on the game -> red (same as ditch)
 _overlay = None          # lazily created on first F3 (owns a tkinter thread)
 
 
@@ -170,26 +165,13 @@ def _fmt_price(v):
 
 
 def _overlay_boxes(res):
-    """(x0,y0,x1,y1,color,label) per detection. Below OVERLAY_JUNK ₽ a box grays out
-    (mags/ammo/junk — ignore); the rest are ranked *within this scan* into three equal
-    tiers — red (cheapest third) / yellow / green (grab first). Relative ranking keeps
-    the spread sensible whatever the loot; the fixed floor keeps trash from competing.
-    label = the value; unidentified draw faint gray, no label, so you still see them."""
-    items = res.get("items", [])
-    # rank the above-floor items by value, then split into equal thirds
-    real = sorted((it for it in items if it["value"] >= OVERLAY_JUNK),
-                  key=lambda it: it["value"])
-    n = len(real)
-    tier = {}
-    for i, it in enumerate(real):
-        t = i / (n - 1) if n > 1 else 1.0             # 0 = cheapest, 1 = priciest
-        tier[id(it)] = _TIERS[0] if t < 1 / 3 else _TIERS[1] if t < 2 / 3 else _TIERS[2]
-    boxes = []
-    for it in items:
-        color = _JUNK if it["value"] < OVERLAY_JUNK else tier[id(it)]
-        boxes.append((*it["box"], color, _fmt_price(it["value"])))
-    for it in res.get("unidentified", []):
-        boxes.append((*it["box"], "#666666", ""))
+    """(x0,y0,x1,y1,color,label) per detection. Box colours are the value tiers stamped
+    by scan.project() (see scanmod.TIER_COLORS) so the overlay and the web list stay in
+    lockstep — the palette lives in scan.py, not here. Identified items show their value;
+    unidentified draw faint gray, no label, so you still see the detection unvalued."""
+    boxes = [(*it["box"], it.get("color", "#888888"), _fmt_price(it["value"]))
+             for it in res.get("items", [])]
+    boxes += [(*it["box"], "#666666", "") for it in res.get("unidentified", [])]
     return boxes
 
 

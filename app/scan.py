@@ -225,6 +225,31 @@ def _resolve(det):
     return rec, bool(chosen)
 
 
+# --- value tiers: the single source of truth for box/list colours -------------------
+# Below the junk floor, or the cheapest third of what's above it, is red; middle third
+# yellow; top third green — ranked within a scan so the colours track the actual loot.
+# project() stamps a `color` (hex) on every identified item, and BOTH the F3 overlay and
+# the web list just read it, so the palette lives here and nowhere else.
+VALUE_JUNK = 15000                               # < 15k ₽ -> red (ignore/ditch)
+TIER_COLORS = ("#ff3b3b", "#ffd21f", "#2ecc40")  # cheapest third / middle / top third
+
+
+def _assign_colors(items):
+    """Stamp each identified item with a `color` by value rank within the scan (junk
+    floor -> red; the rest split into equal red/yellow/green thirds)."""
+    real = sorted((it for it in items if it["value"] >= VALUE_JUNK),
+                  key=lambda it: it["value"])
+    n = len(real)
+    rank = {id(it): i for i, it in enumerate(real)}
+    for it in items:
+        if it["value"] < VALUE_JUNK:
+            it["color"] = TIER_COLORS[0]
+        else:
+            t = rank[id(it)] / (n - 1) if n > 1 else 1.0
+            it["color"] = (TIER_COLORS[0] if t < 1 / 3 else
+                           TIER_COLORS[1] if t < 2 / 3 else TIER_COLORS[2])
+
+
 def project(dets):
     """Build the result dict from raw detections + the current link map. Re-runnable
     after a manual correction (no YOLO/OCR needed)."""
@@ -233,6 +258,7 @@ def project(dets):
         rec, ok = _resolve(det)
         (items if ok else unidentified).append(rec)
     items.sort(key=lambda r: r["per_slot"], reverse=True)
+    _assign_colors(items)
     total = sum(r["value"] for r in items)
     return {"items": items, "unidentified": unidentified,
             "detections": len(dets), "identified": len(items), "total": total,
