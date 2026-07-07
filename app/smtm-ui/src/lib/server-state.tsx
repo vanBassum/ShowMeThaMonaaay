@@ -86,18 +86,40 @@ export function ServerStateProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
-    const es = new EventSource("/api/stream")
-    es.onmessage = (event) => {
-      try {
-        setState(JSON.parse(event.data) as ServerState)
-        setConnected(true)
-      } catch {
-        // ignore non-JSON heartbeats
+    // EventSource auto-reconnects when a live connection drops, but NOT when the
+    // request errors out (e.g. at startup the Vite proxy 500s because the backend
+    // isn't up yet) — the browser treats that as fatal. So we reconnect ourselves.
+    const RETRY_MS = 2000
+    let es: EventSource | null = null
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let closed = false
+
+    const connect = () => {
+      if (closed) return
+      es = new EventSource("/api/stream")
+      es.onmessage = (event) => {
+        try {
+          setState(JSON.parse(event.data) as ServerState)
+          setConnected(true)
+        } catch {
+          // ignore non-JSON heartbeats
+        }
+      }
+      es.onopen = () => setConnected(true)
+      es.onerror = () => {
+        setConnected(false)
+        es?.close() // don't leave a dead handle around; retry with a fresh one
+        es = null
+        timer = setTimeout(connect, RETRY_MS)
       }
     }
-    es.onopen = () => setConnected(true)
-    es.onerror = () => setConnected(false)
-    return () => es.close()
+
+    connect()
+    return () => {
+      closed = true
+      clearTimeout(timer)
+      es?.close()
+    }
   }, [])
 
   return (
