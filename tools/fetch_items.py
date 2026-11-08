@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import time
+import urllib.error
 import urllib.request
 import concurrent.futures
 
@@ -44,8 +45,18 @@ def gql(query):
         data=json.dumps({"query": query}).encode(),
         headers={"Content-Type": "application/json", "User-Agent": UA},
     )
-    with urllib.request.urlopen(req, timeout=60) as r:
-        payload = json.loads(r.read())
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            payload = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        # The API explains failures in the body (e.g. 422 "GraphQL server unavailable.
+        # Try again later." during a tarkov.dev outage) — surface it, not just the code.
+        body = e.read().decode("utf-8", "replace").strip()
+        try:
+            body = "; ".join(map(str, json.loads(body)["errors"]))
+        except (ValueError, KeyError, TypeError):
+            pass
+        raise RuntimeError(f"HTTP {e.code}: {body[:300] or e.reason}") from e
     if "errors" in payload:
         raise RuntimeError(payload["errors"])
     return payload["data"]
