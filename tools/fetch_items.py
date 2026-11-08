@@ -1,7 +1,15 @@
 """
-Fetch all Tarkov items from the tarkov.dev GraphQL API and cache:
+Fetch all Tarkov items from the tarkov.dev JSON API and cache:
   - data/items.json        : metadata (id, name, sizes, prices)
   - data/icons/<id>.webp   : the grid icon (in-stash representation, background baked in)
+
+Uses the JSON (REST) API at json.tarkov.dev — tarkov.dev put the GraphQL API into
+maintenance mode and recommends the JSON API going forward. Two GETs per refresh:
+  /pve/items     items keyed by id; translatable fields (name, shortName) hold keys
+  /pve/items_en  English strings for those keys
+The result is normalised to the shape the rest of the app reads from items.json (a list
+of items with real names and a `sellFor` list), so scan.py / ocr_identify.py are unaware
+of the source.
 
 PvE note: tarkov.dev prices are flea-market based. PvE flea differs, but the item
 identity + relative price-per-slot ranking is what we care about first.
@@ -14,57 +22,50 @@ import urllib.error
 import urllib.request
 import concurrent.futures
 
-API = "https://api.tarkov.dev/graphql"
+API = "https://json.tarkov.dev"
+GAME_MODE = "pve"
+LANG = "en"
 UA = "Mozilla/5.0 tarkov-inv-tool"
 DATA = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 ICONS = os.path.join(DATA, "icons")
 
-# avg24hPrice = flea avg; basePrice = trader base; sellFor = best sell option per vendor
-QUERY = """
-{
-  items(gameMode: pve) {
-    id
-    name
-    shortName
-    width
-    height
-    types
-    basePrice
-    avg24hPrice
-    lastLowPrice
-    gridImageLink
-    sellFor { priceRUB vendor { name } }
-  }
-}
-"""
+# Fields kept in items.json. avg24hPrice = flea avg; lastLowPrice = latest flea low;
+# basePrice = trader base; sellFor = per-trader sell prices (JSON API: sellToTrader).
+FIELDS = ("id", "name", "shortName", "width", "height", "types", "basePrice",
+          "avg24hPrice", "lastLowPrice", "gridImageLink")
 
 
-def gql(query):
-    req = urllib.request.Request(
-        API,
-        data=json.dumps({"query": query}).encode(),
-        headers={"Content-Type": "application/json", "User-Agent": UA},
-    )
+def get_json(path):
+    """GET {API}{path} and return its `data`. HTTP errors are raised with the server's
+    message (e.g. an outage notice), not just the status code."""
+    req = urllib.request.Request(API + path, headers={"User-Agent": UA})
     try:
-        with urllib.request.urlopen(req, timeout=60) as r:
+        with urllib.request.urlopen(req, timeout=120) as r:
             payload = json.loads(r.read())
     except urllib.error.HTTPError as e:
-        # The API explains failures in the body (e.g. 422 "GraphQL server unavailable.
-        # Try again later." during a tarkov.dev outage) — surface it, not just the code.
         body = e.read().decode("utf-8", "replace").strip()
         try:
             body = "; ".join(map(str, json.loads(body)["errors"]))
         except (ValueError, KeyError, TypeError):
             pass
-        raise RuntimeError(f"HTTP {e.code}: {body[:300] or e.reason}") from e
-    if "errors" in payload:
+        raise RuntimeError(f"HTTP {e.code} {path}: {body[:300] or e.reason}") from e
+    if payload.get("errors"):
         raise RuntimeError(payload["errors"])
     return payload["data"]
 
 
 def fetch_items():
-    """Query the API and return the raw items list (prices + metadata)."""
-    return gql(QUERY)["items"]
+    """Fetch items + English strings and return the normalised items list."""
+    raw = get_json(f"/{GAME_MODE}/items")["items"]
+    text = get_json(f"/{GAME_MODE}/items_{LANG}")
+    items = []
+    for it in raw.values():
+        out = {k: it.get(k) for k in FIELDS}
+        out["name"] = text.get(it.get("name"), it.get("name"))
+        out["shortName"] = text.get(it.get("shortName"), it.get("shortName"))
+        out["sellFor"] = [{"priceRUB": s.get("priceRUB")} for s in (it.get("sellToTrader") or [])]
+        items.append(out)
+    return items
 
 
 def write_items(items, path=None):
@@ -97,7 +98,7 @@ def download_icon(item):
 
 def main():
     os.makedirs(ICONS, exist_ok=True)
-    print("Querying GraphQL ...")
+    print(f"Fetching {API}/{GAME_MODE}/items ...")
     items = fetch_items()
     print(f"  {len(items)} items")
 

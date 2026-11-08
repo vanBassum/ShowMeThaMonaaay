@@ -215,7 +215,7 @@ def refresh_prices(force=False):
     if not _price_lock.acquire(blocking=False):
         return False                                   # a refresh is already running
     try:
-        items = fetch_items.fetch_items()              # GraphQL query (prices + metadata)
+        items = fetch_items.fetch_items()              # JSON API GET (prices + metadata)
         fetch_items.write_items(items)                 # overwrite data/items.json
         scanmod.invalidate_catalog()
         age_h = round(scanmod.catalog_age() / 3600, 1)
