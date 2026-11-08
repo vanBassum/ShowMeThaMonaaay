@@ -2,14 +2,33 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Fetch tarkov.dev prices + icons",
-      "detail": "tools/fetch_items.py: refresh data/items.json and download missing grid icons",
+      "label": "Run ShowMeThaMonaaay",
+      "detail": "Backend (Flask :5001) + UI dev server (Vite), each in its own terminal",
+      "dependsOn": ["Backend", "UI (Vite)"],
+      "dependsOrder": "parallel",
+      "problemMatcher": [],
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "Backend",
+      "detail": "app/server.py (F2 scan, F3 overlay, price refresh)",
       "type": "process",
       "command": "${workspaceFolder}/.venv/Scripts/python.exe",
-      "args": ["tools/fetch_items.py"],
+      "args": ["app/server.py"],
       "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
       "problemMatcher": [],
-      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+      "presentation": { "reveal": "always", "panel": "dedicated", "group": "smtm" }
+    },
+    {
+      "label": "UI (Vite)",
+      "detail": "pnpm run dev in app/smtm-ui; proxies /api to the backend",
+      "type": "shell",
+      "command": "pnpm run dev",
+      "options": { "cwd": "${workspaceFolder}/app/smtm-ui" },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "group": "smtm" }
     }
   ]
 }
